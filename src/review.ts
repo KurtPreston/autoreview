@@ -128,8 +128,9 @@ export async function reviewNew(
 }
 
 /**
- * Post findings that sit on lines the diff shows as one review. Returns notes for
- * the rest, which can't be anchored, or would land in an existing conversation.
+ * Post findings that sit on lines the diff shows, and the pull request's diff too, as one
+ * review. Returns notes for the rest, which can't be anchored, or would land in an existing
+ * conversation.
  */
 export async function postFindings(
   run: Run,
@@ -139,12 +140,17 @@ export async function postFindings(
   // Lines our findings already sit on; GitHub numbers further threads on a line `#2`, and so on
   const ours = (await run.reviewer.threads(run.number)).filter((t) => opener(t) === "ours");
   const taken = new Set(ours.map((t) => t.key.replace(/#\d+$/, "")));
+
+  // A review comment can only sit on a line the pull request's own diff shows, which lines
+  // that only a merge from the base changed aren't, though the diff being reviewed may show them
+  const shown = findings.length > 0 ? diffLines(await run.reviewer.diff(run.number)) : new Map();
   const comments: NewComment[] = [];
   const notes: string[] = [];
   for (const finding of findings) {
-    // Anchor on a shown line we haven't raised anything on yet
+    // Anchor on a line both diffs show that we haven't raised anything on yet
     const key = `${finding.path}:+${finding.line}`;
-    if (!anchors.get(finding.path)?.has(finding.line) || taken.has(key)) {
+    const anchored = [anchors, shown].every((lines) => lines.get(finding.path)?.has(finding.line));
+    if (!anchored || taken.has(key)) {
       notes.push(`- \`${finding.path}:${finding.line}\` (${finding.severity}): ${finding.body}`);
       continue;
     }
