@@ -1,0 +1,63 @@
+name: Autoreview
+description: Two Copilot CLI agents deliberate a pull request. One reviews; the other fixes, replies or defers to the author.
+
+inputs:
+  copilot-token:
+    description: A GitHub token with the "Copilot Requests" permission, for the Copilot CLI.
+    required: true
+  reviewer-token:
+    description: Token of the reviewer bot account. With implementer-token, each role posts as its own user.
+    default: ""
+  implementer-token:
+    description: Token of the implementer bot account, which also pushes fixes.
+    default: ""
+  token:
+    description: Fallback token when the bot tokens are absent; both roles then post as one identity.
+    default: ${{ github.token }}
+  pr:
+    description: The pull request to deliberate.
+    default: ${{ github.event.pull_request.number }}
+  heavy:
+    description: Also run the config's heavyChecks, on a runner that can afford them.
+    default: "false"
+  copilot-version:
+    description: The @github/copilot npm package version to install.
+    default: latest
+
+runs:
+  using: composite
+  steps:
+    # Node runs the tool (with type stripping) and the Copilot CLI
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+
+    # Install the Copilot CLI; it reads instructions from COPILOT_HOME, which earlier steps may set
+    - name: Set up the Copilot CLI
+      shell: bash
+      env:
+        COPILOT_VERSION: ${{ inputs.copilot-version }}
+      run: npm install --global --no-fund --no-audit "@github/copilot@$COPILOT_VERSION"
+
+    # Let the posting identity fetch and push, and sign commits as it
+    - name: Set up git
+      shell: bash
+      env:
+        PUSH_TOKEN: ${{ inputs.implementer-token || inputs.token }}
+      run: '"$GITHUB_ACTION_PATH/setup-git.sh"'
+
+    # Deliberate; the tool skips pull requests without the label, drafts, and its own pushes
+    - name: Deliberate
+      shell: bash
+      env:
+        COPILOT_GITHUB_TOKEN: ${{ inputs.copilot-token }}
+        AUTOREVIEW_REVIEWER_TOKEN: ${{ inputs.reviewer-token }}
+        AUTOREVIEW_IMPLEMENTER_TOKEN: ${{ inputs.implementer-token }}
+        GITEA_TOKEN: ${{ inputs.token }}
+        AUTOREVIEW_SENDER: ${{ github.event.sender.login }}
+        PR: ${{ inputs.pr }}
+        HEAVY: ${{ inputs.heavy }}
+      run: |
+        args=(run --pr "$PR" --checkout "$GITHUB_WORKSPACE")
+        if [[ "$HEAVY" == "true" ]]; then args+=(--heavy); fi
+        node --use-system-ca "$GITHUB_ACTION_PATH/src/autoreview.ts" "${args[@]}"

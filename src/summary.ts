@@ -1,0 +1,77 @@
+import type { PullRequest } from "./forge.ts";
+import type { Deliberation, Outcome } from "./loop.ts";
+import { compose, plainText, type Marker } from "./markers.ts";
+import { openDecision, status } from "./status.ts";
+
+/** Count where every thread ended, post the summary, and label what's left to the author. */
+export async function summarise(
+  run: Deliberation,
+  pr: PullRequest,
+  outcome: Outcome,
+): Promise<void> {
+  const deferred: string[] = [];
+  const decided: string[] = [];
+  const human: string[] = [];
+  for (const thread of await run.reviewer.threads(run.number)) {
+    const where = `\`${thread.path}:${thread.line}\``;
+    const first = plainText(thread.comments[0].body).split("\n")[0];
+    const state = status(thread);
+    if (state === "resolved") {
+      outcome.resolved++;
+      const decision = openDecision(thread);
+      if (decision) {
+        outcome.decided++;
+        decided.push(`- ${where}: ${decision.chose} Alternative: ${decision.alternative}`);
+      }
+    } else if (state === "deferred") {
+      outcome.deferred++;
+      deferred.push(`- ${where}: ${first}`);
+    } else if (state === "human") {
+      outcome.human++;
+      human.push(`- ${where}: ${first}`);
+    }
+  }
+
+  // The summary's text: counts, what's left, what was decided, commits, and the cost
+  const ofThem = outcome.decided > 0 ? ` (${outcome.decided} decided for you to review)` : "";
+  const sections = [`${outcome.resolved} resolved${ofThem}, ${outcome.deferred} for the author.`];
+  if (deferred.length > 0) {
+    sections.push(`For you to decide:\n\n${deferred.join("\n")}`);
+  }
+  if (decided.length > 0) {
+    sections.push(`Decided for you, to review:\n\n${decided.join("\n")}`);
+  }
+  if (human.length > 0) {
+    sections.push(`Left alone, since a person has joined:\n\n${human.join("\n")}`);
+  }
+  if (outcome.commits.length > 0) {
+    sections.push(`Commits this run: ${outcome.commits.map((sha) => sha.slice(0, 7)).join(", ")}`);
+  }
+  const calls = Object.entries(run.usage).map(([model, count]) => `${model} × ${count}`);
+  sections.push(`Agent calls: ${calls.join(", ") || "none"}`);
+
+  // Record the head reviewed, so the next run looks only at newer commits
+  const head = await run.checkout.head();
+  const marker: Marker = { role: "reviewer", kind: "summary", head: run.push ? head : pr.headSha };
+  await run.reviewer.comment(
+    run.number,
+    compose("**Autoreview** · summary", sections.join("\n\n"), marker),
+  );
+
+  // Label the pull request while anything waits on the author, or is left for them to review
+  await label(run, pr, { name: run.config.deferLabel, on: outcome.deferred > 0 });
+  await label(run, pr, { name: run.config.decisionLabel, on: outcome.decided > 0 });
+}
+
+/** Add or remove a label so it matches what the threads say. */
+async function label(
+  run: Deliberation,
+  pr: PullRequest,
+  { name, on }: { name: string; on: boolean },
+): Promise<void> {
+  if (on && !pr.labels.includes(name)) {
+    await run.reviewer.addLabel(run.number, name);
+  } else if (!on && pr.labels.includes(name)) {
+    await run.reviewer.removeLabel(run.number, name);
+  }
+}
