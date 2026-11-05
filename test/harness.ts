@@ -14,7 +14,9 @@ import type { Answer, Review, Verification } from "../src/schemas.ts";
 export const FILE = ["export function grow(n) {", "  return n * 2;", "}", ""].join("\n");
 
 export function git(dir: string, ...args: string[]): string {
-  return execFileSync("git", ["-C", dir, ...args], { encoding: "utf8" }).trim();
+  // Name a bare repository with --git-dir, which works even when safe.bareRepository is explicit
+  const target = dir.endsWith(".git") ? ["--git-dir", dir] : ["-C", dir];
+  return execFileSync("git", [...target, ...args], { encoding: "utf8" }).trim();
 }
 
 /** A bare origin, and a clone whose `ferns` branch adds `a.ts` over `main`. */
