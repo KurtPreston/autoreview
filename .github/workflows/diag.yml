@@ -1,0 +1,21 @@
+# Throwaway: does the COPILOT_GITHUB_TOKEN secret work for the Copilot CLI on its own?
+name: Diag
+on: pull_request
+permissions:
+  contents: read
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install -g @github/copilot >/dev/null && copilot --version
+      - env:
+          TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+        run: |
+          echo "secret length: ${#TOKEN}, prefix: ${TOKEN:0:11}"
+          curl -s -o /dev/null -w "GET /user: %{http_code}\n" -H "Authorization: Bearer $TOKEN" https://api.github.com/user
+          curl -s -H "Authorization: Bearer $TOKEN" https://api.github.com/user | grep '"login"' || true
+          unset GITHUB_TOKEN GH_TOKEN
+          COPILOT_GITHUB_TOKEN="$TOKEN" copilot -p "Reply with the word ok" -s 2>&1 | tail -4 || true
