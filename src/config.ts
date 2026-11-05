@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, posix } from "node:path";
 
 /** Reasoning effort levels the Copilot CLI accepts. */
 export const EFFORTS = ["none", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
@@ -15,11 +15,14 @@ export interface RoleConfig {
   effort: Effort;
 }
 
-/** A repository's `.autoreview.json`, with defaults filled in. */
+/**
+ * A repository's root `.autoreview.json`, with defaults filled in. The file is optional: without
+ * it, every field keeps its default. Folders may add their own; see `FolderConfig`.
+ */
 export interface Config {
   reviewer: RoleConfig;
   fixer: RoleConfig;
-  /** Commands that must pass before a fix is pushed. */
+  /** Commands that must pass before a fix is pushed, run at the repository's root. */
   checks: string[];
   /** Slow checks (tests, renders), run only on a runner that can afford them. */
   heavyChecks: string[];
@@ -123,9 +126,71 @@ export function parseConfig(raw: unknown): Config {
   };
 }
 
+/**
+ * A folder's own `.autoreview.json`, for the code under that folder. Its checks run in the
+ * folder, on top of those of the root and of the folders between, and its context paths are
+ * relative to it. Settings for the whole run belong in the root file only.
+ */
+export interface FolderConfig {
+  /** The folder, relative to the repository's root, such as `packages/foo`. */
+  folder: string;
+  checks: string[];
+  heavyChecks: string[];
+  /** Paths relative to the repository's root. */
+  context: string[];
+}
+
+/** The fields a folder's file may set. */
+export const FOLDER_FIELDS = ["checks", "heavyChecks", "context"] as const;
+
+/** Validate a folder's file, read from `<folder>/.autoreview.json`. */
+export function parseFolderConfig(raw: unknown, folder: string): FolderConfig {
+  const file = `${folder}/${CONFIG_FILE}`;
+  try {
+    if (!isRecord(raw)) {
+      throw new ConfigError("config must be an object");
+    }
+
+    // Settings for the whole run, and unknown keys, are mistakes here
+    for (const key of Object.keys(raw)) {
+      if (Object.hasOwn(DEFAULTS, key) && !(FOLDER_FIELDS as readonly string[]).includes(key)) {
+        throw new ConfigError(`"${key}" can only be set in the root ${CONFIG_FILE}`);
+      }
+      if (key !== "$schema" && !Object.hasOwn(DEFAULTS, key)) {
+        throw new ConfigError(`unknown key "${key}"`);
+      }
+    }
+
+    // Context paths are the folder's, and stay inside the repository
+    const context = strings(raw.context, [], "context").map((entry) => {
+      const path = posix.normalize(posix.join(folder, entry));
+      if (posix.isAbsolute(entry) || path === ".." || path.startsWith("../")) {
+        throw new ConfigError(`context entry "${entry}" is outside the repository`);
+      }
+      return path;
+    });
+    return {
+      folder,
+      checks: strings(raw.checks, [], "checks"),
+      heavyChecks: strings(raw.heavyChecks, [], "heavyChecks"),
+      context,
+    };
+  } catch (error) {
+    // Name the folder's file rather than the root's
+    if (error instanceof ConfigError) {
+      throw new ConfigError(error.detail, file);
+    }
+    throw error;
+  }
+}
+
 export class ConfigError extends Error {
-  constructor(message: string) {
-    super(`${CONFIG_FILE}: ${message}`);
+  /** The problem, without the file's name. */
+  readonly detail: string;
+
+  constructor(message: string, file: string = CONFIG_FILE) {
+    super(`${file}: ${message}`);
+    this.detail = message;
   }
 }
 

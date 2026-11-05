@@ -96,7 +96,7 @@ async function main(): Promise<void> {
       config,
       checkout,
       ...roles,
-      agents: copilotAgents({ config, checkout, usage, heavy: values.heavy }),
+      agents: copilotAgents({ config, checkout, usage }),
       usage,
       push: !dryRun,
       heavy: values.heavy,

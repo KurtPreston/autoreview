@@ -21,7 +21,7 @@ Each step runs only when its role's label is on.
 
 1. **Recheck.** On a later run with new commits, the reviewer first checks each thread deferred to the author against them. Threads the commits settle are resolved. The rest stay deferred, and nothing is posted in them.
 2. **Review.** The reviewer reads the diff (on later runs, only the commits since the last one) and reports up to 10 findings. Findings on lines the diff shows become inline threads. The rest go in the review summary, for the author. In blocking mode, the reviewer can also mark a finding `forAuthor`, which defers it from the start; in best-effort mode every inline finding goes to the fixer.
-3. **Fix.** For each open thread, whoever opened it, the fixer answers `fix`, `reply` or `defer`. It may dismiss another bot's or person's comment with a reason. When it agrees with one but the fix would materially change the pull request's structure or behaviour, it defers, and mentions the person who commented (never a bot). A fix or reply that rests on a judgement call carries a `decision`: what was chosen, and the main alternative. A fix must pass the config's `checks`. It gets one retry with the failure in hand; if it still fails, it is dropped and the thread deferred, with the output. Each fix is its own commit, prefixed with the branch name. Fixes are pushed (never forced) before the replies that cite them are posted.
+3. **Fix.** For each open thread, whoever opened it, the fixer answers `fix`, `reply` or `defer`. It may dismiss another bot's or person's comment with a reason. When it agrees with one but the fix would materially change the pull request's structure or behaviour, it defers, and mentions the person who commented (never a bot). A fix or reply that rests on a judgement call carries a `decision`: what was chosen, and the main alternative. A fix must pass the root config's `checks`, and those of the [folder configs](#folder-configs) over the files it changes. It gets one retry with the failure in hand; if it still fails, it is dropped and the thread deferred, with the output. Each fix is its own commit, prefixed with the branch name. Fixes are pushed (never forced) before the replies that cite them are posted.
 4. **Verify.** The reviewer gives every answered thread a verdict: `resolved` (the thread is resolved, unless a person opened it, who resolves it themselves), `follow-up` (back to the fixer) or `defer`. It may raise new findings, but only on lines that round changed.
 5. Rounds repeat up to `maxRounds`. A thread whose agents still disagree after `maxExchanges` answers is deferred in blocking mode. In best-effort mode the reviewer decides it instead: it accepts the fixer's answer as a decision, or rules its own way, and the fixer carries out the ruling. A ruling that is still disputed is deferred, and so is anything open at the round cap, in either mode.
 6. **Summary.** A comment lists what is left for you to decide, what was decided for you to review, what was answered and left open for the commenter, the commits, and the agent calls by model. It sets the labels to match: `needs-author` while any thread is deferred, `author-review` while any decision is unreviewed.
@@ -126,6 +126,25 @@ On Gitea, runs start on pull request events only, not reviews, so the fixer answ
 | `dispatch`                | `[]`                                                    | Workflow files, such as `["checks.yml"]`, to start on the branch after a run pushes fixes. Pushes made with a workflow's own token start no workflows, so list the checks that should see the fixes. Each needs a `workflow_dispatch` trigger                                                 |
 
 The config is read from the pull request's head, so a pull request can change its own checks.
+
+### Folder configs
+
+In a monorepo, each folder can have its own `.autoreview.json` for the code under it. A folder's file may set only `checks`, `heavyChecks` and `context`. Settings for the whole run, such as the models, labels and `defer`, belong in the root file, and a folder file that sets one is an error.
+
+- **Checks add up.** A fix runs the root's checks, then those of each folder file in the folders it changes and the folders above them, shallowest first. Each folder's checks run with that folder as the working directory. A folder the fix doesn't touch isn't checked. The fixer's prompt lists the checks for the folders of the thread's file, each with its folder.
+- **Context is relative to the folder.** Both agents read a folder file's `context` when the pull request changes files in that folder or below it, on top of the root's.
+- **Read once, from the head.** Folder files are read from the pull request's head when a run starts, so a pull request can change them, but a fix can't loosen the checks it's held to.
+
+```text
+.autoreview.json              {"checks": ["npm run lint"]}
+packages/AGENTS.md
+packages/api/.autoreview.json {"checks": ["npm ci && npm run typecheck"], "heavyChecks": ["npm test"], "context": ["docs/api.md"]}
+packages/web/.autoreview.json {"checks": ["npm ci && npm run build"]}
+```
+
+Here, a fix to `packages/api/src/routes.ts` must pass `npm run lint` at the root, then `npm ci && npm run typecheck` in `packages/api`, and `npm test` there too on a heavy runner. `packages/web`'s checks don't run. The agents read `AGENTS.md`, `packages/AGENTS.md` and `packages/api/docs/api.md`.
+
+The workflow template runs `npm ci` only at the root, so a folder whose checks need its own dependencies installs them itself, as above.
 
 ## Standing instructions
 

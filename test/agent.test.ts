@@ -12,7 +12,7 @@ import {
   type AgentCall,
   agentEnv,
 } from "../src/agent.ts";
-import { DEFAULTS, parseConfig } from "../src/config.ts";
+import { DEFAULTS } from "../src/config.ts";
 import { validateAnswer, type Answer } from "../src/schemas.ts";
 
 const FAKE = new URL("./fake-copilot.ts", import.meta.url).pathname;
@@ -42,7 +42,7 @@ function call(overrides: Partial<AgentCall<Answer>> = {}): AgentCall<Answer> {
     cwd: tmpdir(),
     task: "Do the thing.",
     validate: validateAnswer,
-    permissions: fixerPermissions(DEFAULTS, false),
+    permissions: fixerPermissions(),
     timeoutMs: 10_000,
     ...overrides,
   };
@@ -92,15 +92,14 @@ test("two invalid answers, a failed run, or a timeout throw", async () => {
   await assert.rejects(runAgent(call({ timeoutMs: 200 }), {}), AgentError);
 });
 
-test("the reviewer can't write; the fixer can't push or run heavy checks", async () => {
+test("the reviewer can't write; the fixer can't push or run what the loop denies", async () => {
   assert.deepEqual(reviewerPermissions().deny, ["write"]);
   assert.equal(reviewerPermissions().allowAll, false);
 
-  // Heavy checks are denied unless the runner can afford them
-  const config = parseConfig({ heavyChecks: ["npm test"] });
-  assert.ok(fixerPermissions(config, false).deny.includes("shell(git push)"));
-  assert.ok(fixerPermissions(config, false).deny.includes("shell(npm test)"));
-  assert.ok(!fixerPermissions(config, true).deny.includes("shell(npm test)"));
+  // The loop denies heavy checks unless the runner can afford them
+  assert.ok(fixerPermissions().deny.includes("shell(git push)"));
+  assert.ok(fixerPermissions(["npm test"]).deny.includes("shell(npm test)"));
+  assert.ok(!fixerPermissions().deny.includes("shell(npm test)"));
 });
 
 test("agents run without the tokens the loop posts with, but Copilot keeps its own", () => {

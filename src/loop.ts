@@ -4,6 +4,7 @@ import { contextFor } from "./context.ts";
 import type { Forge, PullRequest } from "./forge.ts";
 import { changedFiles, type Checkout } from "./git.ts";
 import { fixRound } from "./fix.ts";
+import { folderContext, FolderConfigs } from "./folders.ts";
 import { newChanges, recheck, reviewNew } from "./review.ts";
 import type { Answer, Review, Verification } from "./schemas.ts";
 import { status, type Status } from "./status.ts";
@@ -18,8 +19,8 @@ export { describe } from "./threads.ts";
 /** The three judgements a deliberation asks for, whoever makes them. */
 export interface Agents {
   review(task: string): Promise<Review>;
-  /** May edit files in the checkout. */
-  fix(task: string): Promise<Answer>;
+  /** May edit files in the checkout, but not run the `deny` commands. */
+  fix(task: string, deny?: string[]): Promise<Answer>;
   /** Must give a verdict for every key. */
   verify(task: string, keys: string[]): Promise<Verification>;
 }
@@ -54,8 +55,13 @@ export interface Roles {
 /** A deliberation under way, with the roles its labels ask for. */
 export interface Run extends Deliberation {
   roles: Roles;
-  /** Convention files in the folders the pull request changes, beyond the configured context. */
+  /**
+   * Convention files in the folders the pull request changes, beyond the configured context:
+   * found by name, or listed in a folder's config.
+   */
   conventions: string[];
+  /** Folders' own configs, read from the head the run started at. */
+  folders: FolderConfigs;
 }
 
 export interface Outcome {
@@ -109,13 +115,13 @@ export async function deliberate(input: Deliberation): Promise<Outcome> {
     throw new Error(`the checkout must be clean at the pull request's head ${pr.headSha}`);
   }
 
-  // Add convention files found in the folders the pull request changes
-  const conventions = await contextFor({
-    dir: checkout.dir,
-    context: config.context,
-    changed: changedFiles(await input.reviewer.diff(number)),
-  });
-  const run: Run = { ...input, roles, conventions };
+  // Add convention files found in, or listed by, the folders the pull request changes
+  const changed = changedFiles(await input.reviewer.diff(number));
+  const folders = new FolderConfigs(checkout, pr.headSha);
+  const found = await contextFor({ dir: checkout.dir, context: config.context, changed });
+  const listed = folderContext(await folders.for(changed), [...config.context, ...found]);
+  const conventions = [...found, ...listed];
+  const run: Run = { ...input, roles, conventions, folders };
 
   // Recheck what the author's new commits settle, and review them
   const changes = roles.review ? await newChanges(run, pr) : undefined;

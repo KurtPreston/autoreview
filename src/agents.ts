@@ -14,8 +14,7 @@ export function copilotAgents({
   config,
   checkout,
   usage,
-  heavy,
-}: Pick<Deliberation, "config" | "checkout" | "usage" | "heavy">): Agents {
+}: Pick<Deliberation, "config" | "checkout" | "usage">): Agents {
   const base = { cwd: checkout.dir, timeoutMs: config.agentTimeoutMinutes * 60_000 };
   return {
     review: (task) =>
@@ -30,7 +29,7 @@ export function copilotAgents({
         },
         usage,
       ),
-    fix: (task) =>
+    fix: (task, deny) =>
       runAgent(
         {
           ...base,
@@ -38,7 +37,7 @@ export function copilotAgents({
           role: config.fixer,
           task,
           validate: validateAnswer,
-          permissions: fixerPermissions(config, heavy),
+          permissions: fixerPermissions(deny),
         },
         usage,
       ),

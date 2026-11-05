@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Config, RoleConfig } from "./config.ts";
+import type { RoleConfig } from "./config.ts";
 import { extractJson, SchemaError, type Validator } from "./schemas.ts";
 
 /** Which tools an agent may use, in the Copilot CLI's permission syntax. */
@@ -69,13 +69,12 @@ export function reviewerPermissions(): Permissions {
   return { allowAll: false, allow: READ_ONLY.map(shell), deny: ["write"] };
 }
 
-/** The fixer edits and runs anything but loop-owned git commands, and heavy checks unless enabled. */
-export function fixerPermissions(config: Config, heavy: boolean): Permissions {
-  const deny = LOOP_GIT.map(shell);
-  if (!heavy) {
-    deny.push(...config.heavyChecks.map(shell));
-  }
-  return { allowAll: true, allow: [], deny };
+/**
+ * The fixer edits and runs anything but loop-owned git commands and the commands the loop
+ * denies it, such as heavy checks on a runner that can't afford them.
+ */
+export function fixerPermissions(denied: string[] = []): Permissions {
+  return { allowAll: true, allow: [], deny: [...LOOP_GIT, ...denied].map(shell) };
 }
 
 function shell(command: string): string {

@@ -96,11 +96,36 @@ export class Checkout {
       .join("\n");
   }
 
-  /** Run a shell command, returning whether it passed and the tail of its output. */
-  async check(command: string): Promise<{ ok: boolean; output: string }> {
+  /**
+   * Every path with uncommitted changes, including untracked files and both sides of a
+   * rename.
+   */
+  async changed(): Promise<string[]> {
+    // -z keeps paths unquoted; a rename's source follows its entry as a field of its own
+    const fields = (await this.git("status", "--porcelain", "-z", "--untracked-files=all"))
+      .split("\0")
+      .filter(Boolean);
+    const paths: string[] = [];
+    for (let i = 0; i < fields.length; i++) {
+      paths.push(fields[i].slice(3));
+      if (/[RC]/.test(fields[i].slice(0, 2))) {
+        paths.push(fields[++i]);
+      }
+    }
+    return paths;
+  }
+
+  /**
+   * Run a shell command in the checkout, or in `cwd` relative to it, returning whether it
+   * passed and the tail of its output.
+   */
+  async check(
+    command: string,
+    { cwd = "." }: { cwd?: string } = {},
+  ): Promise<{ ok: boolean; output: string }> {
     try {
       const { stdout, stderr } = await exec("sh", ["-c", command], {
-        cwd: this.dir,
+        cwd: join(this.dir, cwd),
         maxBuffer: 64 * 1024 * 1024,
       });
       return { ok: true, output: tail(stdout + stderr) };
