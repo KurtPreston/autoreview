@@ -629,3 +629,66 @@ test("a run cancelled after a push marks the pushed commit stopped, and nothing 
   await round2;
   assert.deepEqual(final(), stopped);
 });
+
+test("a pending status still in flight when a run is cancelled doesn't outlast the ending", async () => {
+  const stop = new AbortController();
+  const cancelled = setup(
+    {
+      review: [{ summary: "One problem.", findings: [finding] }],
+      fix: [fix("Math.min(n * 2, MAX)")],
+      verify: [verdict("resolved")],
+    },
+    { signal: stop.signal },
+  );
+
+  // The job is cancelled while the pushed commit's pending status is still being set
+  const forge = MemoryForge.prototype;
+  const original = forge.setStatus;
+  let release = () => {};
+  let started = () => {};
+  const writing = new Promise<void>((resolve) => (started = resolve));
+  forge.setStatus = async function (sha, status) {
+    if (status.description.startsWith("Pushed")) {
+      started();
+      await new Promise<void>((resolve) => (release = resolve));
+    }
+    return original.call(this, sha, status);
+  };
+  try {
+    const run = cancelled.run();
+    await writing;
+    stop.abort(new Error("cancelled by SIGTERM"));
+    await new Promise((resolve) => setImmediate(resolve));
+    release();
+    await assert.rejects(run, /cancelled by SIGTERM/);
+  } finally {
+    forge.setStatus = original;
+  }
+  const pushed = git(cancelled.work, "rev-parse", "HEAD");
+  const status = cancelled.store.statuses?.[pushed];
+  assert.deepEqual(
+    [status?.state, status?.description],
+    ["error", "Stopped: cancelled by SIGTERM"],
+  );
+});
+
+test("a run cancelled during setup, while the diff request hangs, marks its status stopped", async () => {
+  const stop = new AbortController();
+  const cancelled = setup(
+    { review: [{ summary: "Fine.", findings: [] }] },
+    { signal: stop.signal },
+  );
+  const forge = MemoryForge.prototype;
+  const diff = forge.diff;
+  forge.diff = () => {
+    stop.abort(new Error("cancelled by SIGINT"));
+    return new Promise<never>(() => {});
+  };
+  try {
+    await assert.rejects(cancelled.run(), /cancelled by SIGINT/);
+  } finally {
+    forge.diff = diff;
+  }
+  const status = cancelled.store.statuses?.[cancelled.store.pr.headSha];
+  assert.deepEqual([status?.state, status?.description], ["error", "Stopped: cancelled by SIGINT"]);
+});

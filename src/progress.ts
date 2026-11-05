@@ -11,6 +11,8 @@ export class Progress {
   readonly #log: (message: string) => void;
   #sha: string;
   #over = false;
+  /** Writes not yet answered, which could land after a later one. */
+  readonly #inFlight = new Set<Promise<void>>();
 
   constructor(options: {
     forge: Forge;
@@ -52,10 +54,27 @@ export class Progress {
       return;
     }
     this.#over = true;
+    const earlier = [...this.#inFlight];
     await this.#set(state, description);
+
+    // An earlier write answered after this one could have replaced it, so set the ending again
+    if (earlier.length > 0) {
+      await Promise.all(earlier);
+      await this.#set(state, description);
+    }
   }
 
   async #set(state: CommitStatus["state"], description: string): Promise<void> {
+    const write = this.#write(state, description);
+    this.#inFlight.add(write);
+    try {
+      await write;
+    } finally {
+      this.#inFlight.delete(write);
+    }
+  }
+
+  async #write(state: CommitStatus["state"], description: string): Promise<void> {
     try {
       await this.#forge.setStatus(this.#sha, {
         state,

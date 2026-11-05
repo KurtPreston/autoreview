@@ -80,7 +80,7 @@ export interface Outcome {
 
 /** Run the deliberation on a pull request until every thread is resolved or deferred. */
 export async function deliberate(input: Deliberation): Promise<Outcome> {
-  const { number, config, checkout } = input;
+  const { number, config } = input;
   const outcome: Outcome = {
     resolved: 0,
     decided: 0,
@@ -120,20 +120,12 @@ export async function deliberate(input: Deliberation): Promise<Outcome> {
     url: input.link,
     log: input.log,
   });
-  await progress.working(roles.review ? "Reviewing" : "Answering threads");
   try {
-    if ((await checkout.head()) !== pr.headSha || (await checkout.dirty())) {
-      throw new Error(`the checkout must be clean at the pull request's head ${pr.headSha}`);
-    }
-
-    // Add convention files found in the folders the pull request changes
-    const conventions = await contextFor({
-      dir: checkout.dir,
-      context: config.context,
-      changed: changedFiles(await input.reviewer.diff(number)),
-    });
-    const run: Run = { ...input, roles, conventions, progress };
-    const result = await Promise.race([deliberateRounds(run, pr, outcome), aborted(input.signal)]);
+    // Cancellation can come at any point, so race it against setup as well as the rounds
+    const result = await Promise.race([
+      deliberateFrom({ ...input, roles, progress }, pr, outcome),
+      aborted(input.signal),
+    ]);
     await progress.done(describeOutcome(result));
     return result;
   } catch (error) {
@@ -141,6 +133,27 @@ export async function deliberate(input: Deliberation): Promise<Outcome> {
     await progress.failed(`${ending}: ${(error as Error).message}`);
     throw error;
   }
+}
+
+/** Check the checkout and gather conventions, then deliberate in rounds. */
+async function deliberateFrom(
+  setUp: Omit<Run, "conventions">,
+  pr: PullRequest,
+  outcome: Outcome,
+): Promise<Outcome> {
+  const { number, config, checkout, roles, progress } = setUp;
+  await progress.working(roles.review ? "Reviewing" : "Answering threads");
+  if ((await checkout.head()) !== pr.headSha || (await checkout.dirty())) {
+    throw new Error(`the checkout must be clean at the pull request's head ${pr.headSha}`);
+  }
+
+  // Add convention files found in the folders the pull request changes
+  const conventions = await contextFor({
+    dir: checkout.dir,
+    context: config.context,
+    changed: changedFiles(await setUp.reviewer.diff(number)),
+  });
+  return deliberateRounds({ ...setUp, conventions }, pr, outcome);
 }
 
 /** Rejects with the signal's reason once it's aborted; never settles without a signal. */
