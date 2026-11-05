@@ -1,0 +1,6 @@
+{
+  "checks": ["npm run typecheck", "npm run lint", "npm run format:check"],
+  "heavyChecks": ["npm run test"],
+  "visual": false,
+  "dispatch": ["checks.yml"]
+}
