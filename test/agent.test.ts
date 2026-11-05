@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import {
   AgentError,
+  elapsed,
   fixerPermissions,
   reviewerPermissions,
   runAgent,
@@ -78,6 +79,29 @@ test("an invalid answer is retried once with the problem, then accepted", async 
   assert.deepEqual(await runAgent(call(), {}), answer);
   const calls = await log();
   assert.match(calls[1].task, /\$\.action must be one of fix, reply, defer/);
+});
+
+test("each call logs when it starts, retries, and how it ended", async () => {
+  // A retried call logs both attempts and the reason
+  await fake([{ stdout: '{"action":"maybe"}' }, { stdout: JSON.stringify(answer) }]);
+  const lines: string[] = [];
+  await runAgent(call({ log: (line) => lines.push(line) }), {});
+  assert.equal(lines.length, 5);
+  assert.equal(lines[0], "fixer (claude-opus-5.5, high) started");
+  assert.match(lines[1], /^fixer \(claude-opus-5\.5, high\) answered in \d+s$/);
+  assert.match(lines[2], /^fixer: invalid answer \(.*\); retrying$/);
+  assert.equal(lines[3], "fixer (claude-opus-5.5, high) started, retry");
+
+  // A failed run says so
+  await fake([{ stdout: "Authentication failed", exit: 1 }]);
+  lines.length = 0;
+  await assert.rejects(runAgent(call({ log: (line) => lines.push(line) }), {}));
+  assert.match(lines[1], /^fixer \(claude-opus-5\.5, high\) failed after \d+s$/);
+});
+
+test("elapsed time reads as seconds, then minutes and seconds", () => {
+  assert.equal(elapsed(0, 42_000), "42s");
+  assert.equal(elapsed(0, 65_000), "1m 05s");
 });
 
 test("two invalid answers, a failed run, or a timeout throw", async () => {

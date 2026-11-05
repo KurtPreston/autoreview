@@ -91,20 +91,21 @@ async function main(): Promise<void> {
     }
     const config = await loadConfig(checkout.dir);
     const usage = {};
+    const log = (message: string) => console.error(`autoreview: ${message}`);
     const outcome = await untilStopped((signal) =>
       deliberate({
         number: pr,
         config,
         checkout,
         ...roles,
-        agents: copilotAgents({ config, checkout, usage, heavy: values.heavy }),
+        agents: copilotAgents({ config, checkout, usage, heavy: values.heavy, log }),
         usage,
         push: !dryRun,
         heavy: values.heavy,
         force: values.force,
         link: runLink(remote),
         signal,
-        log: (message) => console.error(`autoreview: ${message}`),
+        log,
       }),
     );
     console.error(`autoreview: ${JSON.stringify(outcome)}`);

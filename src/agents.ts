@@ -15,8 +15,10 @@ export function copilotAgents({
   checkout,
   usage,
   heavy,
-}: Pick<Deliberation, "config" | "checkout" | "usage" | "heavy">): Agents {
-  const base = { cwd: checkout.dir, timeoutMs: config.agentTimeoutMinutes * 60_000 };
+  log,
+}: Pick<Deliberation, "config" | "checkout" | "usage" | "heavy"> &
+  Partial<Pick<Deliberation, "log">>): Agents {
+  const base = { cwd: checkout.dir, timeoutMs: config.agentTimeoutMinutes * 60_000, log };
   return {
     review: (task) =>
       runAgent(
