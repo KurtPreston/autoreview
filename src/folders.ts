@@ -21,8 +21,24 @@ export class FolderConfigs {
 
   /** The files that apply to some paths: in their folders and those above, shallowest first. */
   async for(paths: string[]): Promise<FolderConfig[]> {
+    return this.#configs(foldersOf(paths));
+  }
+
+  /** Every folder's file in the starting commit, shallowest first. */
+  async all(): Promise<FolderConfig[]> {
+    const listing = await this.#checkout.git("ls-tree", "-r", "-z", "--name-only", this.#sha);
+    const suffix = `/${CONFIG_FILE}`;
+    const folders = listing
+      .split("\0")
+      .filter((path) => path.endsWith(suffix))
+      .map((path) => path.slice(0, -suffix.length));
+    folders.sort((a, b) => a.split("/").length - b.split("/").length || a.localeCompare(b));
+    return this.#configs(folders);
+  }
+
+  async #configs(folders: string[]): Promise<FolderConfig[]> {
     const found: FolderConfig[] = [];
-    for (const folder of foldersOf(paths)) {
+    for (const folder of folders) {
       if (!this.#read.has(folder)) {
         this.#read.set(folder, this.#load(folder));
       }

@@ -18,6 +18,7 @@ export async function fixRound(
 ): Promise<string | undefined> {
   const threads = await run.reviewer.threads(run.number);
   const replies: { thread: Thread; answer: Answer; commit?: string }[] = [];
+  let deny: string[] | undefined;
   for (const thread of threads.filter((t) => status(t) === "fix")) {
     // A thread that keeps going back and forth goes to the author, unless the reviewer ruled
     if (exchanges(thread) >= run.config.maxExchanges && !ruled(thread)) {
@@ -30,8 +31,8 @@ export async function fixRound(
     }
 
     // Ask for an answer, holding any fix to the checks for the thread's folders
+    deny ??= await heavyDeny(run);
     const sets = await checkSets(run, [thread.path]);
-    const deny = run.heavy ? [] : sets.flatMap((set) => set.heavyChecks);
     const task = render("fix", {
       ...modeText(run.config),
       common: common(pr, run.config, run.conventions),
@@ -123,6 +124,18 @@ export type CheckSet = Pick<FolderConfig, "folder" | "checks" | "heavyChecks">;
 export async function checkSets(run: Run, paths: string[]): Promise<CheckSet[]> {
   const { checks, heavyChecks } = run.config;
   return [{ folder: ".", checks, heavyChecks }, ...(await run.folders.for(paths))];
+}
+
+/**
+ * The heavy checks the fixer may not run when the runner can't afford them: the root's and
+ * every folder's, since a fix may reach any package, not just the thread's.
+ */
+export async function heavyDeny(run: Run): Promise<string[]> {
+  if (run.heavy) {
+    return [];
+  }
+  const sets = [run.config, ...(await run.folders.all())];
+  return [...new Set(sets.flatMap((set) => set.heavyChecks))];
 }
 
 /** The checks to run from some sets, with heavy ones only when the runner can afford them. */

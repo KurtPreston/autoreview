@@ -131,7 +131,7 @@ The config is read from the pull request's head, so a pull request can change it
 
 In a monorepo, each folder can have its own `.autoreview.json` for the code under it. A folder's file may set only `checks`, `heavyChecks` and `context`. Settings for the whole run, such as the models, labels and `defer`, belong in the root file, and a folder file that sets one is an error.
 
-- **Checks add up.** A fix runs the root's checks, then those of each folder file in the folders it changes and the folders above them, shallowest first. Each folder's checks run with that folder as the working directory. A folder the fix doesn't touch isn't checked. The fixer's prompt lists the checks for the folders of the thread's file, each with its folder.
+- **Checks add up.** A fix runs the root's checks, then those of each folder file in the folders it changes and the folders above them, shallowest first. Each folder's checks run with that folder as the working directory. A folder the fix doesn't touch isn't checked. The fixer's prompt lists the checks for the folders of the thread's file, each with its folder. Without `heavy: true`, the fixer may not run any folder's heavy checks, since a fix can reach any package.
 - **Context is relative to the folder.** Both agents read a folder file's `context` when the pull request changes files in that folder or below it, on top of the root's.
 - **Read once, from the head.** Folder files are read from the pull request's head when a run starts, so a pull request can change them, but a fix can't loosen the checks it's held to.
 

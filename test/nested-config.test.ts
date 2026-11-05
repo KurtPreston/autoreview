@@ -67,20 +67,31 @@ test("folder files are read from the starting commit, shallowest first, for the 
     ],
   );
   await assert.rejects(folders.for(["bad/x.ts"]), /^Error: bad\/\.autoreview\.json: /);
+  await assert.rejects(folders.all(), /^Error: bad\/\.autoreview\.json: /);
+  writeFileSync(join(work, "bad/.autoreview.json"), "{}");
+  git(work, "commit", "--quiet", "-am", "Fix bad");
+  const all = await new FolderConfigs(checkout, await checkout.head()).all();
+  assert.deepEqual(
+    all.map((config) => config.folder),
+    ["bad", "other", "pkg", "pkg/foo"],
+  );
 });
 
 /**
  * A pull request changing `pkg/foo/b.ts`, in a repository whose folders have their own
  * configs, with a finding open on that file.
  */
-function monorepo(fixes: ((dir: string, task: string) => Answer)[]): Setup {
-  const nested = setup({ fix: fixes, verify: [verdict("resolved")] }, { seed: seedThread });
+function monorepo(
+  fixes: ((dir: string, task: string) => Answer)[],
+  seed: (store: Store) => void = seedThread,
+): Setup {
+  const nested = setup({ fix: fixes, verify: [verdict("resolved")] }, { seed });
   const { store, work } = nested;
 
   // main gains the folder configs; other/ fails every check, but nothing touches it
   git(work, "checkout", "--quiet", "main");
   write(work, {
-    "other/.autoreview.json": '{"checks":["false"]}',
+    "other/.autoreview.json": '{"checks":["false"],"heavyChecks":["make e2e"]}',
     "pkg/.autoreview.json": '{"checks":["test -f marker"],"context":["docs/style.md"]}',
     "pkg/marker": "",
     "pkg/docs/style.md": "Style.\n",
@@ -121,6 +132,12 @@ function seedThread(store: Store): void {
   });
 }
 
+/** An open finding on the root's a.ts line 2. */
+function seedRoot(store: Store): void {
+  seedThread(store);
+  Object.assign(store.threads[0], { key: "a.ts:+2", path: "a.ts", line: 2 });
+}
+
 /** Edit b.ts, and write any other files, then answer with a fix, keeping the task. */
 function fixB(tasks: string[], files: Record<string, string> = {}) {
   return (dir: string, task: string): Answer => {
@@ -141,13 +158,29 @@ test("a fix answers to the checks of its folders and those above, each run in it
     tasks[0],
     /fix what they report: `true`, `test -f marker` \(in `pkg`\), `test -f ok\.txt` \(in `pkg\/foo`\)\./,
   );
-  assert.deepEqual(nested.denied, [["npm test"], ["npm test"]]);
+  assert.deepEqual(nested.denied, [
+    ["make e2e", "npm test"],
+    ["make e2e", "npm test"],
+  ]);
 
   // The first fix lacked pkg/foo/ok.txt, so it failed there; the retry passed, and other/'s
   // failing check never ran
   assert.match(tasks[1], /## Your fix failed the checks[\s\S]*\$ \(in pkg\/foo\) test -f ok\.txt/);
   assert.equal(outcome.commits.length, 1);
   assert.equal(outcome.resolved, 1);
+});
+
+test("a fix to a root file may not run any folder's heavy checks, nor may its retry", async () => {
+  const tasks: string[] = [];
+  const nested = monorepo([fixB(tasks), fixB(tasks, { "pkg/foo/ok.txt": "" })], seedRoot);
+  const outcome = await nested.run();
+  assert.match(tasks[0], /fix what they report: `true`\./);
+  assert.match(tasks[1], /\$ \(in pkg\/foo\) test -f ok\.txt/);
+  assert.deepEqual(nested.denied, [
+    ["make e2e", "npm test"],
+    ["make e2e", "npm test"],
+  ]);
+  assert.equal(outcome.commits.length, 1);
 });
 
 test("a fix can't loosen its own folder's checks", async () => {
