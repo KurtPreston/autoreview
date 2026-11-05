@@ -206,6 +206,26 @@ test("a workflow's events are read from its top-level on, not its jobs or commen
     "push",
     "pull_request",
   ]);
+  assert.deepEqual(
+    workflowEvents(
+      "on: {push: {branches: [main, pull_request, release]}, workflow_dispatch: {}}\n",
+    ),
+    ["push", "workflow_dispatch"],
+  );
+  assert.deepEqual(
+    workflowEvents(
+      [
+        "on: {",
+        "  push: {branches: [main], paths: ['a, pull_request: b']},",
+        "  workflow_dispatch: {inputs: {x: {type: string}}},",
+        "  pull_request: {}",
+        "}",
+        "jobs: {}",
+        "",
+      ].join("\n"),
+    ),
+    ["push", "workflow_dispatch", "pull_request"],
+  );
   assert.deepEqual(workflowEvents("on:\n- push\n- pull_request\njobs: {}\n"), [
     "push",
     "pull_request",

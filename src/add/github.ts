@@ -114,14 +114,16 @@ export function workflowEvents(text: string): string[] {
   // On the key's line: a name, [a, b] or {a: ..., b}, which may run over several lines
   let inline = lines[start].replace(key, "");
   if (inline) {
-    const close = inline.startsWith("[") ? "]" : inline.startsWith("{") ? "}" : "";
-    for (let next = start + 1; close && !inline.includes(close) && next < lines.length; next++) {
-      inline += ` ${lines[next]}`;
+    if (!/^[[{]/.test(inline)) {
+      return [unquote(inline)].filter(Boolean);
     }
-    return inline
-      .replace(/^[[{]|[\]}]$/g, "")
-      .split(",")
-      .map((part) => unquote(part.split(":")[0]))
+    let end = flowEnd(inline);
+    for (let next = start + 1; end < 0 && next < lines.length; next++) {
+      inline += ` ${lines[next]}`;
+      end = flowEnd(inline);
+    }
+    return splitFlow(inline.slice(1, end < 0 ? undefined : end), ",")
+      .map((entry) => unquote(splitFlow(entry, ":")[0]))
       .filter(Boolean);
   }
 
@@ -141,6 +143,48 @@ export function workflowEvents(text: string): string[] {
     .filter((line) => /^\s*/.exec(line)![0].length === indent)
     .map((line) => unquote(line.trim().replace(/^-\s*/, "").split(":")[0]))
     .filter(Boolean);
+}
+
+/** Where the flow collection `text` opens with closes, or -1 if it doesn't yet. */
+function flowEnd(text: string): number {
+  let depth = 0;
+  let quote = "";
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    if (quote) {
+      quote = char === quote ? "" : quote;
+    } else if (char === '"' || char === "'") {
+      quote = char;
+    } else if (char === "[" || char === "{") {
+      depth++;
+    } else if ((char === "]" || char === "}") && --depth === 0) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+/** `text` split at each `separator` outside quotes and nested collections. */
+function splitFlow(text: string, separator: string): string[] {
+  const parts = [""];
+  let depth = 0;
+  let quote = "";
+  for (const char of text) {
+    if (quote) {
+      quote = char === quote ? "" : quote;
+    } else if (char === '"' || char === "'") {
+      quote = char;
+    } else if (char === "[" || char === "{") {
+      depth++;
+    } else if (char === "]" || char === "}") {
+      depth--;
+    } else if (char === separator && depth === 0) {
+      parts.push("");
+      continue;
+    }
+    parts[parts.length - 1] += char;
+  }
+  return parts;
 }
 
 function unquote(name: string): string {
