@@ -194,6 +194,25 @@ test("each deferral mode fills the prompts with its own criteria", () => {
   }
 });
 
+test("each prompt's example answer passes the check its real answer must pass", () => {
+  const pr = { number: 7, title: "t", body: "", author: "kurt", headRef: "h", baseRef: "b" };
+  const vars = {
+    ...modeText(DEFAULTS),
+    common: common(pr as PullRequest, DEFAULTS),
+    path: "a.ts",
+    line: 1,
+    baseSha: "b",
+    maxFindings: 3,
+    ...Object.fromEntries(
+      ["checks", "thread", "excerpt", "diff", "threads", "changes"].map((k) => [k, ""]),
+    ),
+  };
+  const example = (name: string) => extractJson(render(name, vars).split("## Answer")[1] ?? "");
+  assert.ok(validateReview(example("review")).findings.length > 0);
+  assert.ok(validateVerification(example("verify")).findings.length > 0);
+  validateAnswer(example("fix"));
+});
+
 test("long text is clipped with a pointer to the rest", () => {
   assert.equal(clip("short", 10, "run git diff"), "short");
   assert.match(
