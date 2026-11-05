@@ -39,13 +39,13 @@ async function main(): Promise<void> {
       "setup-action": { type: "string", multiple: true, default: [] },
       "runs-on": { type: "string", default: "ubuntu-latest" },
       reviewer: { type: "string", default: "autoreview-reviewer" },
-      implementer: { type: "string", default: "autoreview-implementer" },
+      fixer: { type: "string", default: "autoreview-fixer" },
       help: { type: "boolean", short: "h", default: false },
     },
   });
   if (values.help || positionals.length > 1) {
     console.log(`usage: add.sh [<repo>] [--vendor] [--ref <autoreview ref>] [--runs-on <label>]
-                  [--setup-action <uses>]... [--secrets] [--reviewer <bot>] [--implementer <bot>]
+                  [--setup-action <uses>]... [--secrets] [--reviewer <bot>] [--fixer <bot>]
 
 Enables autoreview on a GitHub or Gitea repository (default: the current directory),
 chosen by its origin.
@@ -55,7 +55,7 @@ own actions; rerun it to update the copy.
 the agents' standing instructions; repeat it for more.
 
 On GitHub, both roles post as the workflow's own token, so there's nothing else to set up.
-On Gitea, --reviewer and --implementer name the bot accounts to add as collaborators, and
+On Gitea, --reviewer and --fixer name the bot accounts to add as collaborators, and
 --secrets stores ${SECRETS.join(", ")} on your account,
 taking each from the environment or asking for it.`);
     return;
@@ -66,7 +66,7 @@ taking each from the environment or asking for it.`);
     setupActions: values["setup-action"],
     runsOn: values["runs-on"],
     reviewer: values.reviewer,
-    implementer: values.implementer,
+    fixer: values.fixer,
     secrets: values.secrets ? await askSecrets() : {},
     vendor: values.vendor,
     log: (message) => console.log(`autoreview: ${message}`),

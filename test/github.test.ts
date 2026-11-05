@@ -123,7 +123,12 @@ test("threads come from GraphQL pages, oldest first, with outdated lines kept", 
         thread("T2", { comments: { nodes: [comment(11, "2026-01-01T00:00:00Z")] } }),
         thread("T3", {
           comments: {
-            nodes: [comment(12, "2026-01-01T00:00:01Z"), comment(13, "x", "kurt")],
+            nodes: [
+              comment(12, "2026-01-01T00:00:01Z"),
+              comment(13, "x", "kurt"),
+              { ...comment(14, "y", "copilot"), author: { __typename: "Bot", login: "copilot" } },
+              comment(15, "z", "lint[bot]"),
+            ],
           },
         }),
         thread("T4", { diffSide: "LEFT", comments: { nodes: [] } }),
@@ -142,11 +147,15 @@ test("threads come from GraphQL pages, oldest first, with outdated lines kept", 
     threads.map((t) => [t.id, t.key, t.line, t.resolved, t.comments.map((c) => c.id)]),
     [
       ["T2", "a.ts:+3", 3, false, [11]],
-      ["T3", "a.ts:+3#2", 3, false, [12, 13]],
+      ["T3", "a.ts:+3#2", 3, false, [12, 13, 14, 15]],
       ["T1", "a.ts:+9", 9, true, [10]],
     ],
   );
   assert.equal(threads[1].comments[1].author, "kurt");
+  assert.deepEqual(
+    threads[1].comments.map((c) => c.bot),
+    [false, false, true, true],
+  );
   assert.deepEqual(
     calls.map((c) => (c.body?.variables as { number: number } | undefined)?.number),
     [7, 7],

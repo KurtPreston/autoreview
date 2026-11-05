@@ -36,7 +36,7 @@ interface RawPull {
 interface RawComment {
   id: number;
   body: string;
-  user: User | null;
+  user: (User & { type?: string }) | null;
   created_at: string;
 }
 interface RawThread {
@@ -47,7 +47,12 @@ interface RawThread {
   originalLine: number | null;
   diffSide: "LEFT" | "RIGHT";
   comments: {
-    nodes: { databaseId: number; body: string; createdAt: string; author: User | null }[];
+    nodes: {
+      databaseId: number;
+      body: string;
+      createdAt: string;
+      author: (User & { __typename?: string }) | null;
+    }[];
   };
 }
 interface ThreadPage {
@@ -141,6 +146,7 @@ export class GitHub implements Forge {
     return raw.map((c) => ({
       id: c.id,
       author: c.user?.login ?? "ghost",
+      bot: c.user?.type === "Bot",
       body: c.body,
       createdAt: c.created_at,
     }));
@@ -306,6 +312,7 @@ function toThread(raw: RawThread, seen: Map<string, number>): Thread {
     comments: raw.comments.nodes.map((c) => ({
       id: c.databaseId,
       author: c.author?.login ?? "ghost",
+      bot: c.author?.__typename === "Bot" || (c.author?.login.endsWith("[bot]") ?? false),
       body: c.body,
       createdAt: c.createdAt,
     })),

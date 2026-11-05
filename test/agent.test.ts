@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import {
   AgentError,
-  implementerPermissions,
+  fixerPermissions,
   reviewerPermissions,
   runAgent,
   type AgentCall,
@@ -37,12 +37,12 @@ async function fake(
 
 function call(overrides: Partial<AgentCall<Answer>> = {}): AgentCall<Answer> {
   return {
-    name: "implementer",
-    role: DEFAULTS.implementer,
+    name: "fixer",
+    role: DEFAULTS.fixer,
     cwd: tmpdir(),
     task: "Do the thing.",
     validate: validateAnswer,
-    permissions: implementerPermissions(DEFAULTS, false),
+    permissions: fixerPermissions(DEFAULTS, false),
     timeoutMs: 10_000,
     ...overrides,
   };
@@ -92,15 +92,15 @@ test("two invalid answers, a failed run, or a timeout throw", async () => {
   await assert.rejects(runAgent(call({ timeoutMs: 200 }), {}), AgentError);
 });
 
-test("the reviewer can't write; the implementer can't push or run heavy checks", async () => {
+test("the reviewer can't write; the fixer can't push or run heavy checks", async () => {
   assert.deepEqual(reviewerPermissions().deny, ["write"]);
   assert.equal(reviewerPermissions().allowAll, false);
 
   // Heavy checks are denied unless the runner can afford them
   const config = parseConfig({ heavyChecks: ["npm test"] });
-  assert.ok(implementerPermissions(config, false).deny.includes("shell(git push)"));
-  assert.ok(implementerPermissions(config, false).deny.includes("shell(npm test)"));
-  assert.ok(!implementerPermissions(config, true).deny.includes("shell(npm test)"));
+  assert.ok(fixerPermissions(config, false).deny.includes("shell(git push)"));
+  assert.ok(fixerPermissions(config, false).deny.includes("shell(npm test)"));
+  assert.ok(!fixerPermissions(config, true).deny.includes("shell(npm test)"));
 });
 
 test("agents run without the tokens the loop posts with, but Copilot keeps its own", () => {
@@ -110,7 +110,7 @@ test("agents run without the tokens the loop posts with, but Copilot keeps its o
     COPILOT_GITHUB_TOKEN: "copilot",
     GITHUB_TOKEN: "workflow",
     GITEA_TOKEN: "gitea",
-    AUTOREVIEW_IMPLEMENTER_TOKEN: "bot",
+    AUTOREVIEW_FIXER_TOKEN: "bot",
   });
   assert.deepEqual(env, { PATH: "/bin", COPILOT_GITHUB_TOKEN: "copilot" });
 

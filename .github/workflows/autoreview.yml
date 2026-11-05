@@ -1,11 +1,14 @@
-# Autoreview: two agents deliberate pull requests labelled "autoreview". One reviews;
-# the other fixes, replies, or defers to the author. Added by autoreview's add.sh.
+# Autoreview: agents deliberate pull requests. The "autoreview" label runs a reviewer, and
+# "autofix" a fixer that fixes, replies or defers to the author. Added by autoreview's add.sh.
 # It posts and pushes as github-actions[bot], with the Copilot CLI billed to the organization.
 name: Autoreview
 
 on:
   pull_request:
     types: [opened, labeled, synchronize, reopened, ready_for_review]
+  # Another bot or person reviewed; reviews posted with the workflow's token start no runs
+  pull_request_review:
+    types: [submitted]
 
 # Push fixes, post reviews and labels, start checks after a fix, and call the Copilot CLI
 permissions:
@@ -24,7 +27,8 @@ jobs:
   autoreview:
     # Skip drafts, and forks, whose heads the workflow's token can't push to
     if: >-
-      contains(github.event.pull_request.labels.*.name, 'autoreview') &&
+      (contains(github.event.pull_request.labels.*.name, 'autoreview') ||
+        contains(github.event.pull_request.labels.*.name, 'autofix')) &&
       !github.event.pull_request.draft &&
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest

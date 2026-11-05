@@ -36,7 +36,7 @@ test("on GitHub one token posts as both roles: the workflow's, then gh's", async
   // The workflow token wins over gh's login
   const fromEnv = await forges(github, { env: { GITHUB_TOKEN: "w" }, ghToken: () => "g" });
   assert.ok(fromEnv.reviewer instanceof GitHub);
-  assert.equal(fromEnv.reviewer, fromEnv.implementer);
+  assert.equal(fromEnv.reviewer, fromEnv.fixer);
   assert.equal(fromEnv.reviewer.options.token, "w");
   assert.equal(fromEnv.reviewer.options.api, "https://api.github.com");
 
@@ -50,18 +50,18 @@ test("on GitHub one token posts as both roles: the workflow's, then gh's", async
 });
 
 test("two role tokens give two identities, on either forge", async () => {
-  const env = { AUTOREVIEW_REVIEWER_TOKEN: "a", AUTOREVIEW_IMPLEMENTER_TOKEN: "b" };
+  const env = { AUTOREVIEW_REVIEWER_TOKEN: "a", AUTOREVIEW_FIXER_TOKEN: "b" };
   const onGitHub = await forges(github, { env, ghToken: noGh });
   assert.equal((onGitHub.reviewer as GitHub).options.token, "a");
-  assert.equal((onGitHub.implementer as GitHub).options.token, "b");
+  assert.equal((onGitHub.fixer as GitHub).options.token, "b");
   const onGitea = await forges(gitea, { env, ghToken: noGh });
   assert.ok(onGitea.reviewer instanceof Gitea);
-  assert.equal((onGitea.implementer as Gitea).options.token, "b");
+  assert.equal((onGitea.fixer as Gitea).options.token, "b");
 });
 
 test("on Gitea one GITEA_TOKEN posts as both roles", async () => {
   const roles = await forges(gitea, { env: { GITEA_TOKEN: "t", GITHUB_TOKEN: "w" } });
   assert.ok(roles.reviewer instanceof Gitea);
   assert.equal(roles.reviewer.options.token, "t");
-  assert.equal(roles.reviewer, roles.implementer);
+  assert.equal(roles.reviewer, roles.fixer);
 });

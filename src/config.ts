@@ -18,26 +18,27 @@ export interface RoleConfig {
 /** A repository's `.autoreview.json`, with defaults filled in. */
 export interface Config {
   reviewer: RoleConfig;
-  implementer: RoleConfig;
+  fixer: RoleConfig;
   /** Commands that must pass before a fix is pushed. */
   checks: string[];
   /** Slow checks (tests, renders), run only on a runner that can afford them. */
   heavyChecks: string[];
-  /** Whether the implementer may render pictures to verify visual changes. */
+  /** Whether the fixer may render pictures to verify visual changes. */
   visual: boolean;
   /** Whether judgement calls are decided and flagged, or deferred to the author. */
   defer: DeferMode;
-  /** Implement-and-verify rounds after the first review. */
+  /** Fix-and-verify rounds after the first review. */
   maxRounds: number;
   /** Replies a thread may trade before it is deferred as a disagreement. */
   maxExchanges: number;
   /** Files and directories the agents should read for the project's conventions. */
   context: string[];
   /**
-   * The label that asks for a review, the one marking threads left to the author, and the
-   * one marking decisions made for the author to look over.
+   * The labels that ask for the reviewer and the fixer, the one marking threads left to the
+   * author, and the one marking decisions made for the author to look over.
    */
-  label: string;
+  reviewLabel: string;
+  fixLabel: string;
   deferLabel: string;
   decisionLabel: string;
   /** How long one agent call may run. */
@@ -53,7 +54,7 @@ export const CONFIG_FILE = ".autoreview.json";
 
 export const DEFAULTS: Config = {
   reviewer: { model: "gpt-6-astra", effort: "high" },
-  implementer: { model: "claude-opus-5.5", effort: "high" },
+  fixer: { model: "claude-opus-5.5", effort: "high" },
   checks: [],
   heavyChecks: [],
   visual: false,
@@ -61,7 +62,8 @@ export const DEFAULTS: Config = {
   maxRounds: 3,
   maxExchanges: 2,
   context: ["AGENTS.md"],
-  label: "autoreview",
+  reviewLabel: "autoreview",
+  fixLabel: "autofix",
   deferLabel: "needs-author",
   decisionLabel: "author-review",
   agentTimeoutMinutes: 20,
@@ -100,7 +102,7 @@ export function parseConfig(raw: unknown): Config {
   // Merge each field over its default, checking its type
   return {
     reviewer: role(raw.reviewer, DEFAULTS.reviewer, "reviewer"),
-    implementer: role(raw.implementer, DEFAULTS.implementer, "implementer"),
+    fixer: role(raw.fixer, DEFAULTS.fixer, "fixer"),
     checks: strings(raw.checks, DEFAULTS.checks, "checks"),
     heavyChecks: strings(raw.heavyChecks, DEFAULTS.heavyChecks, "heavyChecks"),
     visual: boolean(raw.visual, DEFAULTS.visual, "visual"),
@@ -108,7 +110,8 @@ export function parseConfig(raw: unknown): Config {
     maxRounds: count(raw.maxRounds, DEFAULTS.maxRounds, "maxRounds"),
     maxExchanges: count(raw.maxExchanges, DEFAULTS.maxExchanges, "maxExchanges"),
     context: strings(raw.context, DEFAULTS.context, "context"),
-    label: text(raw.label, DEFAULTS.label, "label"),
+    reviewLabel: text(raw.reviewLabel, DEFAULTS.reviewLabel, "reviewLabel"),
+    fixLabel: text(raw.fixLabel, DEFAULTS.fixLabel, "fixLabel"),
     deferLabel: text(raw.deferLabel, DEFAULTS.deferLabel, "deferLabel"),
     decisionLabel: text(raw.decisionLabel, DEFAULTS.decisionLabel, "decisionLabel"),
     agentTimeoutMinutes: count(

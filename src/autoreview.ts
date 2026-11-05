@@ -22,9 +22,9 @@ const USAGE = `usage:
   --checkout  deliberate in this checkout (CI); otherwise a temporary worktree of --repo
   --dry-run   print what would be posted, and push nothing
   --heavy     also run heavyChecks: the machine can afford them
-  --force     review even without the label, or on a draft or closed pull request
+  --force     deliberate even without a label (as both roles), or on a draft or closed pull request
 
-Tokens: AUTOREVIEW_REVIEWER_TOKEN and AUTOREVIEW_IMPLEMENTER_TOKEN post as two
+Tokens: AUTOREVIEW_REVIEWER_TOKEN and AUTOREVIEW_FIXER_TOKEN post as two
 identities. Otherwise one identity posts as both: on GitHub, GITHUB_TOKEN, GH_TOKEN
 or gh's login; on Gitea, GITEA_TOKEN or tea's login. AUTOREVIEW_FORGE=github|gitea
 overrides which forge the origin is taken to be.`;
@@ -50,7 +50,7 @@ async function main(): Promise<void> {
     process.exit(2);
   }
   const remote = findRemote(values.repo);
-  const { reviewer, implementer } = await forges(remote);
+  const { reviewer, fixer } = await forges(remote);
 
   // Listing threads only reads
   if (command === "threads") {
@@ -65,13 +65,13 @@ async function main(): Promise<void> {
 
   // A dry run plays the deliberation against a copy of the pull request in memory
   const dryRun = values["dry-run"];
-  let roles = { reviewer, implementer };
+  let roles = { reviewer, fixer };
   if (dryRun) {
     const store = await snapshot(reviewer, pr);
     store.onWrite = (author, action, detail) => console.log(`\n── ${author}: ${action}\n${detail}`);
     roles = {
       reviewer: new MemoryForge(store, await reviewer.login()),
-      implementer: new MemoryForge(store, await implementer.login()),
+      fixer: new MemoryForge(store, await fixer.login()),
     };
   }
 
@@ -108,7 +108,7 @@ async function main(): Promise<void> {
     // Pushes with a workflow's own token start no checks, so start the configured ones
     if (!dryRun && outcome.commits.length > 0) {
       await dispatchAfterPush({
-        forge: roles.implementer,
+        forge: roles.fixer,
         workflows: config.dispatch,
         branch: head.headBranch,
         log: (message) => console.error(`autoreview: ${message}`),

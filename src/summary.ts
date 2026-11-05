@@ -1,18 +1,19 @@
 import type { PullRequest } from "./forge.ts";
-import type { Deliberation, Outcome } from "./loop.ts";
+import type { Outcome, Run } from "./loop.ts";
 import { compose, plainText, type Marker } from "./markers.ts";
 import { openDecision, status } from "./status.ts";
+import { forAuthor, involved, voice } from "./threads.ts";
 
 /** Count where every thread ended, post the summary, and label what's left to the author. */
-export async function summarise(
-  run: Deliberation,
-  pr: PullRequest,
-  outcome: Outcome,
-): Promise<void> {
+export async function summarise(run: Run, pr: PullRequest, outcome: Outcome): Promise<void> {
   const deferred: string[] = [];
   const decided: string[] = [];
-  const human: string[] = [];
+  const waiting: string[] = [];
   for (const thread of await run.reviewer.threads(run.number)) {
+    // Threads autoreview never took part in aren't its to report
+    if (!involved(thread)) {
+      continue;
+    }
     const where = `\`${thread.path}:${thread.line}\``;
     const first = plainText(thread.comments[0].body).split("\n")[0];
     const state = status(thread);
@@ -23,12 +24,13 @@ export async function summarise(
         outcome.decided++;
         decided.push(`- ${where}: ${decision.chose} Alternative: ${decision.alternative}`);
       }
-    } else if (state === "deferred") {
+    } else if (forAuthor(run, thread)) {
       outcome.deferred++;
       deferred.push(`- ${where}: ${first}`);
-    } else if (state === "human") {
-      outcome.human++;
-      human.push(`- ${where}: ${first}`);
+    } else if (state === "waiting" || (state === "verify" && !run.roles.review)) {
+      // Answered, and left for whoever opened it to settle
+      outcome.waiting++;
+      waiting.push(`- ${where}: ${first}`);
     }
   }
 
@@ -41,8 +43,8 @@ export async function summarise(
   if (decided.length > 0) {
     sections.push(`Decided for you, to review:\n\n${decided.join("\n")}`);
   }
-  if (human.length > 0) {
-    sections.push(`Left alone, since a person has joined:\n\n${human.join("\n")}`);
+  if (waiting.length > 0) {
+    sections.push(`Answered, and left open for the commenter:\n\n${waiting.join("\n")}`);
   }
   if (outcome.commits.length > 0) {
     sections.push(`Commits this run: ${outcome.commits.map((sha) => sha.slice(0, 7)).join(", ")}`);
@@ -52,8 +54,9 @@ export async function summarise(
 
   // Record the head reviewed, so the next run looks only at newer commits
   const head = await run.checkout.head();
-  const marker: Marker = { role: "reviewer", kind: "summary", head: run.push ? head : pr.headSha };
-  await run.reviewer.comment(
+  const { forge, role } = voice(run);
+  const marker: Marker = { role, kind: "summary", head: run.push ? head : pr.headSha };
+  await forge.comment(
     run.number,
     compose("**Autoreview** · summary", sections.join("\n\n"), marker),
   );
@@ -65,13 +68,14 @@ export async function summarise(
 
 /** Add or remove a label so it matches what the threads say. */
 async function label(
-  run: Deliberation,
+  run: Run,
   pr: PullRequest,
   { name, on }: { name: string; on: boolean },
 ): Promise<void> {
+  const { forge } = voice(run);
   if (on && !pr.labels.includes(name)) {
-    await run.reviewer.addLabel(run.number, name);
+    await forge.addLabel(run.number, name);
   } else if (!on && pr.labels.includes(name)) {
-    await run.reviewer.removeLabel(run.number, name);
+    await forge.removeLabel(run.number, name);
   }
 }

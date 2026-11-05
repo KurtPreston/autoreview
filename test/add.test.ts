@@ -47,7 +47,7 @@ test("enabling a repository writes its workflow and config, labels, and collabor
     setupActions: ["https://example.com/o/instructions@main"],
     runsOn: "ubuntu-latest",
     reviewer: "reviewer-bot",
-    implementer: "missing-bot",
+    fixer: "missing-bot",
     secrets: { COPILOT_GITHUB_TOKEN: "c" },
     log: (message) => log.push(message),
     fetch,
@@ -85,7 +85,7 @@ test("existing files are kept, and non-npm projects get no setup or checks", asy
     ref: "main",
     runsOn: "self-hosted",
     reviewer: "reviewer-bot",
-    implementer: "reviewer-bot",
+    fixer: "reviewer-bot",
     secrets: {},
     log: () => {},
     fetch,
@@ -111,7 +111,7 @@ test("a token without the user scope gets advice instead of a crash", async () =
     ref: "main",
     runsOn: "ubuntu-latest",
     reviewer: "reviewer-bot",
-    implementer: "reviewer-bot",
+    fixer: "reviewer-bot",
     secrets: { COPILOT_GITHUB_TOKEN: "c" },
     log: (message) => log.push(message),
     fetch: scoped,
@@ -144,7 +144,7 @@ const githubOptions = {
   ref: "v1",
   runsOn: "ubuntu-latest",
   reviewer: "",
-  implementer: "",
+  fixer: "",
   secrets: {},
 };
 
@@ -163,6 +163,7 @@ test("on GitHub, the workflow uses the workflow's token, and checks are started 
   assert.ok(workflow.includes(`uses: ${new URL(ACTION).pathname.slice(1)}@v1\n`));
   assert.match(workflow, /copilot-requests: write/);
   assert.match(workflow, /head\.repo\.full_name == github\.repository/);
+  assert.match(workflow, /'autoreview'\) \|\|\n\s+contains\([^)]*'autofix'\)/);
   assert.doesNotMatch(workflow, /\{\{\w+\}\}/);
   assert.match(
     workflow,
@@ -177,7 +178,7 @@ test("on GitHub, the workflow uses the workflow's token, and checks are started 
   // Only the missing labels are created, and no bots or secrets
   assert.deepEqual(
     calls.filter((call) => call.startsWith("POST")),
-    ["POST api.github.com/repos/o/r/labels", "POST api.github.com/repos/o/r/labels"],
+    Array(3).fill("POST api.github.com/repos/o/r/labels"),
   );
 });
 

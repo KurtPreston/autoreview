@@ -2,7 +2,9 @@
 
 ## Your role: reviewer, checking answers
 
-The implementer has answered the threads below. For each, read its history and, for a fix, the change it made (shown with each thread, or with `git show <commit>`). You can read any file and run read-only commands; you can't change files.
+The fixer has answered the threads below. For each, read its history and, for a fix, the change it made (shown with each thread, or with `git show <commit>`). You can read any file and run read-only commands; you can't change files.
+
+Some threads were opened by other bots or people rather than you. Judge them the same way. A thread a person opened stays open after a `resolved` verdict, for them to close.
 
 Give each thread a verdict:
 
