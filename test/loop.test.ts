@@ -47,7 +47,7 @@ test("a clear finding is fixed, pushed, verified and resolved", async () => {
   );
   assert.match(
     thread.comments[1].body,
-    /^🤖 \*\*Fixer\*\* · claude-opus-5\.5 · fixed in [0-9a-f]{7}/,
+    /^🤖 \*\*Autoreview fixer\*\* · claude-opus-5\.5 · fixed in [0-9a-f]{7}/,
   );
 
   // The summary records the new head, so the next run reviews nothing old
