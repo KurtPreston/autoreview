@@ -45,6 +45,8 @@ export interface Deliberation {
   force: boolean;
   /** Where to watch this run, linked from its commit status. */
   link?: string;
+  /** Stops the run when aborted, as when the job is cancelled or times out. */
+  signal?: AbortSignal;
   log: (message: string) => void;
 }
 
@@ -131,13 +133,24 @@ export async function deliberate(input: Deliberation): Promise<Outcome> {
   // Show the run as pending on the head until it ends, however it ends
   await progress.working(roles.review ? "Reviewing" : "Answering threads");
   try {
-    const result = await deliberateRounds(run, pr, outcome);
+    const result = await Promise.race([deliberateRounds(run, pr, outcome), aborted(input.signal)]);
     await progress.done(describeOutcome(result));
     return result;
   } catch (error) {
-    await progress.failed(`Failed: ${(error as Error).message}`);
+    const ending = input.signal?.aborted ? "Stopped" : "Failed";
+    await progress.failed(`${ending}: ${(error as Error).message}`);
     throw error;
   }
+}
+
+/** Rejects with the signal's reason once it's aborted; never settles without a signal. */
+function aborted(signal: AbortSignal | undefined): Promise<never> {
+  return new Promise((_, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason);
+    }
+    signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+  });
 }
 
 /** Review, then fix and verify in rounds, then summarise. */

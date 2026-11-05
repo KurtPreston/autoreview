@@ -62,7 +62,7 @@ export interface Setup {
 
 export function setup(
   script: Script,
-  options: { config?: object; seed?: (store: Store) => void } = {},
+  options: { config?: object; seed?: (store: Store) => void; signal?: AbortSignal } = {},
 ): Setup {
   const { origin, work } = repository();
   const store: Store = {
@@ -120,6 +120,7 @@ export function setup(
       push: true,
       heavy: false,
       force: false,
+      signal: options.signal,
       log: () => {},
     });
   return { store, work, origin, calls, reviews, agents, run };

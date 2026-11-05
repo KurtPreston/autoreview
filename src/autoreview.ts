@@ -91,19 +91,22 @@ async function main(): Promise<void> {
     }
     const config = await loadConfig(checkout.dir);
     const usage = {};
-    const outcome = await deliberate({
-      number: pr,
-      config,
-      checkout,
-      ...roles,
-      agents: copilotAgents({ config, checkout, usage, heavy: values.heavy }),
-      usage,
-      push: !dryRun,
-      heavy: values.heavy,
-      force: values.force,
-      link: runLink(remote),
-      log: (message) => console.error(`autoreview: ${message}`),
-    });
+    const outcome = await untilStopped((signal) =>
+      deliberate({
+        number: pr,
+        config,
+        checkout,
+        ...roles,
+        agents: copilotAgents({ config, checkout, usage, heavy: values.heavy }),
+        usage,
+        push: !dryRun,
+        heavy: values.heavy,
+        force: values.force,
+        link: runLink(remote),
+        signal,
+        log: (message) => console.error(`autoreview: ${message}`),
+      }),
+    );
     console.error(`autoreview: ${JSON.stringify(outcome)}`);
 
     // Pushes with a workflow's own token start no checks, so start the configured ones
@@ -117,6 +120,29 @@ async function main(): Promise<void> {
     }
   } finally {
     await cleanup();
+  }
+}
+
+/**
+ * Run work that stops when the job is cancelled or times out: the runner sends SIGINT, then
+ * SIGTERM. The work gets a moment to mark its commit status, then the process exits.
+ */
+async function untilStopped<T>(work: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  const stop = new AbortController();
+  const handlers = (["SIGINT", "SIGTERM"] as const).map((name) => {
+    const handler = () => {
+      stop.abort(new Error(`cancelled by ${name}`));
+      setTimeout(() => process.exit(name === "SIGINT" ? 130 : 143), 5000).unref();
+    };
+    process.once(name, handler);
+    return [name, handler] as const;
+  });
+  try {
+    return await work(stop.signal);
+  } finally {
+    for (const [name, handler] of handlers) {
+      process.off(name, handler);
+    }
   }
 }
 

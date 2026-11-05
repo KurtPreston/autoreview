@@ -10,6 +10,7 @@ export class Progress {
   readonly #url: string | undefined;
   readonly #log: (message: string) => void;
   #sha: string;
+  #over = false;
 
   constructor(options: {
     forge: Forge;
@@ -25,19 +26,33 @@ export class Progress {
 
   /** The run is still going; with a sha, the pull request has moved to that commit. */
   async working(description: string, sha?: string): Promise<void> {
+    if (this.#over) {
+      return;
+    }
     if (sha) {
       this.#sha = sha;
     }
     await this.#set("pending", description);
   }
 
-  /** The run is over: finished, or stopped by something it couldn't handle. */
+  /**
+   * The run is over: finished, or stopped by something it couldn't handle or a cancellation.
+   * The first ending stands, and later updates are ignored.
+   */
   async done(description: string): Promise<void> {
-    await this.#set("success", description);
+    await this.#end("success", description);
   }
 
   async failed(description: string): Promise<void> {
-    await this.#set("error", description);
+    await this.#end("error", description);
+  }
+
+  async #end(state: CommitStatus["state"], description: string): Promise<void> {
+    if (this.#over) {
+      return;
+    }
+    this.#over = true;
+    await this.#set(state, description);
   }
 
   async #set(state: CommitStatus["state"], description: string): Promise<void> {

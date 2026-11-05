@@ -571,3 +571,47 @@ test("a run that fails marks its status, and a status that can't be set doesn't 
   const final = failing.store.statuses?.[failing.store.pr.headSha];
   assert.deepEqual([final?.state, final?.description], ["error", "Failed: agent crashed"]);
 });
+
+test("a run cancelled after a push marks the pushed commit stopped, and nothing overwrites it", async () => {
+  const stop = new AbortController();
+  let release = () => {};
+  let reachedRound2 = () => {};
+  const round2 = new Promise<void>((resolve) => (reachedRound2 = resolve));
+  const cancelled = setup(
+    {
+      review: [{ summary: "One problem.", findings: [finding] }],
+      fix: [
+        fix("Math.min(n * 2, MAX)"),
+        () => {
+          reachedRound2();
+          return reply();
+        },
+      ],
+      verify: [verdict("follow-up")],
+    },
+    { signal: stop.signal },
+  );
+
+  // The job is cancelled while the reviewer verifies the pushed fix
+  const first = cancelled.store.pr.headSha;
+  const verify = cancelled.agents.verify;
+  cancelled.agents.verify = async (task, keys) => {
+    stop.abort(new Error("cancelled by SIGTERM"));
+    await new Promise<void>((resolve) => (release = resolve));
+    return verify(task, keys);
+  };
+  await assert.rejects(cancelled.run(), /cancelled by SIGTERM/);
+  const pushed = git(cancelled.work, "rev-parse", "HEAD");
+  assert.notEqual(pushed, first);
+  const final = () => {
+    const status = cancelled.store.statuses?.[pushed];
+    return [status?.state, status?.description];
+  };
+  const stopped = ["error", "Stopped: cancelled by SIGTERM"];
+  assert.deepEqual(final(), stopped);
+
+  // The abandoned rounds carry on into round 2, but the status stays stopped
+  release();
+  await round2;
+  assert.deepEqual(final(), stopped);
+});
