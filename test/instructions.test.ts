@@ -89,6 +89,15 @@ test("front matter values are read as YAML scalars", () => {
     ),
     { plain: "a, b", single: "it's here", double: "a\tbc!" },
   );
+
+  // Comments between a key and its value
+  assert.deepEqual(
+    frontmatter(
+      '---\napplyTo: # TypeScript\n  "**/*.ts"\nexcludeAgent: # fixer only\n  # still\n  code-review\n' +
+        "block: # c\n  |\n    a\nempty: # nothing\n---\n",
+    ),
+    { applyTo: "**/*.ts", excludeAgent: "code-review", block: "a\n", empty: "" },
+  );
 });
 
 test("commented and multiline values still match and exclude", async () => {
@@ -97,11 +106,17 @@ test("commented and multiline values still match and exclude", async () => {
       '---\napplyTo: "**/*.ts" # TypeScript\nexcludeAgent: "code-review" # fixer only\n---\n',
     [`${DIR}/web.instructions.md`]:
       "---\napplyTo: >-\n  **/*.css,\n  **/*.html\nexcludeAgent: >\n  cloud-agent\n---\n",
+    [`${DIR}/md.instructions.md`]:
+      '---\napplyTo: # Markdown\n  "**/*.md"\nexcludeAgent: # fixer only\n  code-review\n---\n',
   });
-  assert.deepEqual(await instructionsFor({ dir, changed: ["src/a.ts", "web/b.html"] }), [
-    { path: `${DIR}/ts.instructions.md`, applyTo: "**/*.ts", excludes: "reviewer" },
-    { path: `${DIR}/web.instructions.md`, applyTo: "**/*.css,**/*.html", excludes: "fixer" },
-  ]);
+  assert.deepEqual(
+    await instructionsFor({ dir, changed: ["src/a.ts", "web/b.html", "docs/c.md"] }),
+    [
+      { path: `${DIR}/md.instructions.md`, applyTo: "**/*.md", excludes: "reviewer" },
+      { path: `${DIR}/ts.instructions.md`, applyTo: "**/*.ts", excludes: "reviewer" },
+      { path: `${DIR}/web.instructions.md`, applyTo: "**/*.css,**/*.html", excludes: "fixer" },
+    ],
+  );
 });
 
 test("applyTo splits at commas outside braces and brackets", async () => {

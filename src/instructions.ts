@@ -124,13 +124,17 @@ export function frontmatter(text: string): Record<string, string> {
 
 /** A YAML scalar's value from the text after its key and its continuation lines. */
 function scalar(first: string, rest: string[]): string {
-  const header = /^([|>])([+-]?)(\d?)([+-]?)\s*(?:#.*)?$/.exec(first.trim());
-  if (header) {
-    return blockScalar(header, rest);
-  }
+  // Blank and comment-only lines before the value aren't part of it
   const lines = [first, ...rest];
-  while (lines.length > 1 && lines[0].trim() === "") {
+  while (lines.length > 0 && /^\s*(?:#.*)?$/.test(lines[0])) {
     lines.shift();
+  }
+  if (lines.length === 0) {
+    return "";
+  }
+  const header = /^([|>])([+-]?)(\d?)([+-]?)\s*(?:#.*)?$/.exec(lines[0].trim());
+  if (header) {
+    return blockScalar(header, lines.slice(1));
   }
   const text = lines.join("\n").trimStart();
   return text.startsWith('"') || text.startsWith("'") ? quoted(text) : plain(lines);
