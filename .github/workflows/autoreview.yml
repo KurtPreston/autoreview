@@ -10,12 +10,13 @@ on:
   pull_request_review:
     types: [submitted]
 
-# Push fixes, post reviews and labels, start checks after a fix, and call the Copilot CLI
+# Push fixes, post reviews, labels and statuses, start checks after a fix, and call the Copilot CLI
 permissions:
   contents: write
   pull-requests: write
   issues: write
   actions: write
+  statuses: write
   copilot-requests: write
 
 # One run per pull request at a time; a newer one waits rather than cancelling

@@ -6,6 +6,8 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { compose, readMarker } from "../src/markers.ts";
 import { status } from "../src/loop.ts";
+import { Checkout } from "../src/git.ts";
+import { MemoryForge } from "../src/memory.ts";
 import type { Answer, Verification } from "../src/schemas.ts";
 import {
   authorCommits,
@@ -516,4 +518,226 @@ test("a file moved unchanged into a folder points agents at that folder's conven
 
   await moved.run();
   assert.match(moved.reviews[0], /conventions: `AGENTS\.md`\. Then read[^.]*: `pkg\/AGENTS\.md`\./);
+});
+
+test("the commit status is pending while working, follows pushed fixes, and ends done", async () => {
+  const seen: string[] = [];
+  const clear = setup(
+    {
+      review: [{ summary: "One problem.", findings: [finding] }],
+      fix: [fix("Math.min(n * 2, MAX)")],
+      verify: [verdict("resolved")],
+    },
+    {
+      seed: (store) =>
+        (store.onWrite = (_, action, detail) => {
+          if (action.startsWith("status")) {
+            seen.push(`${action.slice(7)} ${detail}`);
+          }
+        }),
+    },
+  );
+  const first = clear.store.pr.headSha.slice(0, 7);
+  await clear.run();
+  const pushed = git(clear.work, "rev-parse", "--short=7", "HEAD");
+  assert.deepEqual(seen, [
+    `${first} pending: Reviewing`,
+    `${first} pending: Round 1: 1 open thread`,
+    `${pushed} pending: Pushed fixes; verifying them`,
+    `${pushed} success: Done: 1 resolved, 0 for the author`,
+  ]);
+});
+
+test("a run that fails marks its status, and a status that can't be set doesn't stop a run", async () => {
+  const broken = setup({ review: [{ summary: "Fine.", findings: [] }] });
+  const forge = MemoryForge.prototype;
+  const original = forge.setStatus;
+  forge.setStatus = async () => {
+    throw new Error("403 Resource not accessible");
+  };
+  try {
+    assert.equal((await broken.run()).resolved, 0);
+  } finally {
+    forge.setStatus = original;
+  }
+
+  // An agent that throws leaves an error status before the error surfaces
+  const failing = setup({});
+  failing.store.pr.labels = ["autoreview"];
+  const agents = failing.agents;
+  agents.review = async () => {
+    throw new Error("agent crashed");
+  };
+  await assert.rejects(failing.run(), /agent crashed/);
+  const final = failing.store.statuses?.[failing.store.pr.headSha];
+  assert.deepEqual([final?.state, final?.description], ["error", "Failed: agent crashed"]);
+
+  // So does a run that fails before deliberating, as when the diff can't be fetched
+  const early = setup({ review: [{ summary: "Fine.", findings: [] }] });
+  const diff = forge.diff;
+  forge.diff = async () => {
+    throw new Error("502 Bad Gateway");
+  };
+  try {
+    await assert.rejects(early.run(), /502 Bad Gateway/);
+  } finally {
+    forge.diff = diff;
+  }
+  const status = early.store.statuses?.[early.store.pr.headSha];
+  assert.deepEqual([status?.state, status?.description], ["error", "Failed: 502 Bad Gateway"]);
+});
+
+test("a run cancelled after a push marks the pushed commit stopped, and its rounds stop", async () => {
+  const stop = new AbortController();
+  let release = () => {};
+  let returned = () => {};
+  const answered = new Promise<void>((resolve) => (returned = resolve));
+  const cancelled = setup(
+    {
+      review: [{ summary: "One problem.", findings: [finding] }],
+      fix: [fix("Math.min(n * 2, MAX)")],
+      verify: [verdict("follow-up")],
+    },
+    { signal: stop.signal },
+  );
+
+  // The job is cancelled while the reviewer verifies the pushed fix
+  const first = cancelled.store.pr.headSha;
+  const verify = cancelled.agents.verify;
+  cancelled.agents.verify = async (task, keys) => {
+    stop.abort(new Error("cancelled by SIGTERM"));
+    await new Promise<void>((resolve) => (release = resolve));
+    const verification = await verify(task, keys);
+    setImmediate(returned);
+    return verification;
+  };
+  await assert.rejects(cancelled.run(), /cancelled by SIGTERM/);
+  const pushed = git(cancelled.work, "rev-parse", "HEAD");
+  assert.notEqual(pushed, first);
+  const final = () => {
+    const status = cancelled.store.statuses?.[pushed];
+    return [status?.state, status?.description];
+  };
+  const stopped = ["error", "Stopped: cancelled by SIGTERM"];
+  assert.deepEqual(final(), stopped);
+
+  // The abandoned verification's answer posts nothing, and no round follows it
+  const comments = JSON.stringify([cancelled.store.threads, cancelled.store.comments]);
+  release();
+  await answered;
+  assert.equal(JSON.stringify([cancelled.store.threads, cancelled.store.comments]), comments);
+  assert.deepEqual(cancelled.calls, { review: 1, fix: 1, verify: 1 });
+  assert.equal(git(cancelled.work, "rev-parse", "HEAD"), pushed);
+  assert.deepEqual(final(), stopped);
+});
+
+test("a push that lands after a run is cancelled gets the stopped status too", async () => {
+  const stop = new AbortController();
+  const cancelled = setup(
+    {
+      review: [{ summary: "One problem.", findings: [finding] }],
+      fix: [fix("Math.min(n * 2, MAX)")],
+      verify: [verdict("resolved")],
+    },
+    { signal: stop.signal },
+  );
+
+  // The job is cancelled while the fix is being pushed
+  const checkout = Checkout.prototype;
+  const push = checkout.push;
+  let release = () => {};
+  let started = () => {};
+  const pushing = new Promise<void>((resolve) => (started = resolve));
+  let landed: Promise<boolean> | undefined;
+  checkout.push = async function (branch) {
+    started();
+    await new Promise<void>((resolve) => (release = resolve));
+    landed = push.call(this, branch);
+    return landed;
+  };
+  try {
+    const run = cancelled.run();
+    await pushing;
+    stop.abort(new Error("cancelled by SIGTERM"));
+    await assert.rejects(run, /cancelled by SIGTERM/);
+    const first = cancelled.store.pr.headSha;
+    assert.equal(cancelled.store.statuses?.[first]?.description, "Stopped: cancelled by SIGTERM");
+    release();
+    await new Promise((resolve) => setImmediate(resolve));
+    await landed;
+    await new Promise((resolve) => setImmediate(resolve));
+  } finally {
+    checkout.push = push;
+  }
+  const pushed = git(cancelled.origin, "rev-parse", "ferns");
+  assert.notEqual(pushed, cancelled.store.pr.headSha);
+  const status = cancelled.store.statuses?.[pushed];
+  assert.deepEqual(
+    [status?.state, status?.description],
+    ["error", "Stopped: cancelled by SIGTERM"],
+  );
+  assert.equal(cancelled.calls.verify, 0);
+});
+
+test("a pending status still in flight when a run is cancelled doesn't outlast the ending", async () => {
+  const stop = new AbortController();
+  const cancelled = setup(
+    {
+      review: [{ summary: "One problem.", findings: [finding] }],
+      fix: [fix("Math.min(n * 2, MAX)")],
+      verify: [verdict("resolved")],
+    },
+    { signal: stop.signal },
+  );
+
+  // The job is cancelled while the pushed commit's pending status is still being set
+  const forge = MemoryForge.prototype;
+  const original = forge.setStatus;
+  let release = () => {};
+  let started = () => {};
+  const writing = new Promise<void>((resolve) => (started = resolve));
+  forge.setStatus = async function (sha, status) {
+    if (status.description.startsWith("Pushed")) {
+      started();
+      await new Promise<void>((resolve) => (release = resolve));
+    }
+    return original.call(this, sha, status);
+  };
+  try {
+    const run = cancelled.run();
+    await writing;
+    stop.abort(new Error("cancelled by SIGTERM"));
+    await new Promise((resolve) => setImmediate(resolve));
+    release();
+    await assert.rejects(run, /cancelled by SIGTERM/);
+  } finally {
+    forge.setStatus = original;
+  }
+  const pushed = git(cancelled.work, "rev-parse", "HEAD");
+  const status = cancelled.store.statuses?.[pushed];
+  assert.deepEqual(
+    [status?.state, status?.description],
+    ["error", "Stopped: cancelled by SIGTERM"],
+  );
+});
+
+test("a run cancelled during setup, while the diff request hangs, marks its status stopped", async () => {
+  const stop = new AbortController();
+  const cancelled = setup(
+    { review: [{ summary: "Fine.", findings: [] }] },
+    { signal: stop.signal },
+  );
+  const forge = MemoryForge.prototype;
+  const diff = forge.diff;
+  forge.diff = () => {
+    stop.abort(new Error("cancelled by SIGINT"));
+    return new Promise<never>(() => {});
+  };
+  try {
+    await assert.rejects(cancelled.run(), /cancelled by SIGINT/);
+  } finally {
+    forge.diff = diff;
+  }
+  const status = cancelled.store.statuses?.[cancelled.store.pr.headSha];
+  assert.deepEqual([status?.state, status?.description], ["error", "Stopped: cancelled by SIGINT"]);
 });

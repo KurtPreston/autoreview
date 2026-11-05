@@ -4,6 +4,7 @@ import { contextFor } from "./context.ts";
 import type { Forge, PullRequest } from "./forge.ts";
 import { changedFiles, type Checkout } from "./git.ts";
 import { fixRound } from "./fix.ts";
+import { Progress } from "./progress.ts";
 import { newChanges, recheck, reviewNew } from "./review.ts";
 import type { Answer, Review, Verification } from "./schemas.ts";
 import { status, type Status } from "./status.ts";
@@ -42,6 +43,15 @@ export interface Deliberation {
   heavy: boolean;
   /** Deliberate even without a label (as both roles), or on a draft or closed pull request. */
   force: boolean;
+  /** Where to watch this run, linked from its commit status. */
+  link?: string;
+  /** Stops the run when aborted, as when the job is cancelled or times out. */
+  signal?: AbortSignal;
+  /**
+   * Once cancelled, how long to wait for the work under way to stop before rejecting, so a push
+   * that lands meanwhile still gets the run's ending. No wait by default.
+   */
+  stopGraceMs?: number;
   log: (message: string) => void;
 }
 
@@ -56,6 +66,8 @@ export interface Run extends Deliberation {
   roles: Roles;
   /** Convention files in the folders the pull request changes, beyond the configured context. */
   conventions: string[];
+  /** The run's commit status, on the pull request's latest commit. */
+  progress: Progress;
 }
 
 export interface Outcome {
@@ -73,7 +85,7 @@ export interface Outcome {
 
 /** Run the deliberation on a pull request until every thread is resolved or deferred. */
 export async function deliberate(input: Deliberation): Promise<Outcome> {
-  const { number, config, checkout } = input;
+  const { number, config } = input;
   const outcome: Outcome = {
     resolved: 0,
     decided: 0,
@@ -105,6 +117,50 @@ export async function deliberate(input: Deliberation): Promise<Outcome> {
       skipped: "fixes can't be pushed: the head isn't a branch of this repository",
     };
   }
+
+  // Show the run as pending on the head until it ends, however it ends
+  const progress = new Progress({
+    forge: roles.review ? input.reviewer : input.fixer,
+    sha: pr.headSha,
+    url: input.link,
+    log: input.log,
+  });
+
+  // Cancellation can come at any point, so race it against setup as well as the rounds,
+  // and stop the abandoned rounds at their next call to the forge, checkout or agents
+  const { signal } = input;
+  const run = {
+    ...input,
+    reviewer: until(input.reviewer, signal),
+    fixer: until(input.fixer, signal),
+    checkout: until(input.checkout, signal),
+    agents: until(input.agents, signal),
+    roles,
+    progress,
+  };
+  const work = deliberateFrom(run, pr, outcome);
+  try {
+    const result = await Promise.race([work, aborted(signal)]);
+    await progress.done(describeOutcome(result));
+    return result;
+  } catch (error) {
+    const ending = signal?.aborted ? "Stopped" : "Failed";
+    await progress.failed(`${ending}: ${(error as Error).message}`);
+    if (signal?.aborted) {
+      await settled(work, input.stopGraceMs ?? 0);
+    }
+    throw error;
+  }
+}
+
+/** Check the checkout and gather conventions, then deliberate in rounds. */
+async function deliberateFrom(
+  setUp: Omit<Run, "conventions">,
+  pr: PullRequest,
+  outcome: Outcome,
+): Promise<Outcome> {
+  const { number, config, checkout, roles, progress } = setUp;
+  await progress.working(roles.review ? "Reviewing" : "Answering threads");
   if ((await checkout.head()) !== pr.headSha || (await checkout.dirty())) {
     throw new Error(`the checkout must be clean at the pull request's head ${pr.headSha}`);
   }
@@ -113,9 +169,59 @@ export async function deliberate(input: Deliberation): Promise<Outcome> {
   const conventions = await contextFor({
     dir: checkout.dir,
     context: config.context,
-    changed: changedFiles(await input.reviewer.diff(number)),
+    changed: changedFiles(await setUp.reviewer.diff(number)),
   });
-  const run: Run = { ...input, roles, conventions };
+  return deliberateRounds({ ...setUp, conventions }, pr, outcome);
+}
+
+/** Rejects with the signal's reason once it's aborted; never settles without a signal. */
+function aborted(signal: AbortSignal | undefined): Promise<never> {
+  return new Promise((_, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason);
+    }
+    signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+  });
+}
+
+/** Wait for work to finish, however it ends, but no longer than a time limit. */
+async function settled(work: Promise<unknown>, limitMs: number): Promise<void> {
+  if (limitMs <= 0) {
+    return;
+  }
+  let timer: NodeJS.Timeout | undefined;
+  const limit = new Promise<void>((resolve) => (timer = setTimeout(resolve, limitMs)));
+  await Promise.race([work.then(nothing, nothing), limit]);
+  clearTimeout(timer);
+}
+
+function nothing(): void {}
+
+/**
+ * The same object, but its methods throw the signal's reason once it's aborted, so work
+ * abandoned on cancellation makes no further calls. A call already under way finishes.
+ */
+function until<T extends object>(target: T, signal: AbortSignal | undefined): T {
+  if (!signal) {
+    return target;
+  }
+  return new Proxy(target, {
+    get(object, key) {
+      const value: unknown = Reflect.get(object, key, object);
+      if (typeof value !== "function") {
+        return value;
+      }
+      return (...args: unknown[]) => {
+        signal.throwIfAborted();
+        return value.apply(object, args);
+      };
+    },
+  });
+}
+
+/** Review, then fix and verify in rounds, then summarise. */
+async function deliberateRounds(run: Run, pr: PullRequest, outcome: Outcome): Promise<Outcome> {
+  const { number, config, checkout, roles } = run;
 
   // Recheck what the author's new commits settle, and review them
   const changes = roles.review ? await newChanges(run, pr) : undefined;
@@ -133,6 +239,8 @@ export async function deliberate(input: Deliberation): Promise<Outcome> {
       break;
     }
     run.log(`round ${round}: ${waiting.length} open threads`);
+    const open = `${waiting.length} open thread${waiting.length === 1 ? "" : "s"}`;
+    await run.progress.working(`Round ${round}: ${open}`);
     rounds++;
 
     // The fixer answers, then the reviewer judges the answers
@@ -165,6 +273,18 @@ export async function deliberate(input: Deliberation): Promise<Outcome> {
   }
   await summarise(run, pr, outcome);
   return outcome;
+}
+
+/** One line on how a run ended, for its commit status. */
+function describeOutcome(outcome: Outcome): string {
+  if (outcome.stopped) {
+    return `Stopped: ${outcome.stopped}`;
+  }
+  if (outcome.skipped) {
+    return "Nothing new to review, and no open threads";
+  }
+  const decided = outcome.decided > 0 ? ` (${outcome.decided} decided for you to review)` : "";
+  return `Done: ${outcome.resolved} resolved${decided}, ${outcome.deferred} for the author`;
 }
 
 /** The roles a pull request's labels ask for; forcing one with neither plays both. */

@@ -1,8 +1,8 @@
-import { spawn } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Config, RoleConfig } from "./config.ts";
+import { spawnGroup, stopGroup } from "./processes.ts";
 import { extractJson, SchemaError, type Validator } from "./schemas.ts";
 
 /** Which tools an agent may use, in the Copilot CLI's permission syntax. */
@@ -25,7 +25,14 @@ export interface AgentCall<T> {
   validate: Validator<T>;
   permissions: Permissions;
   timeoutMs: number;
+  /** Progress lines, such as for the Actions log. */
+  log?: (message: string) => void;
+  /** Stops the CLI when aborted, as when the job is cancelled. */
+  signal?: AbortSignal;
 }
+
+/** How often a running call says it's still working. */
+const HEARTBEAT_MS = 30_000;
 
 /** Calls made per model, for the summary. */
 export type Usage = Record<string, number>;
@@ -123,10 +130,13 @@ export async function runAgent<T>(call: AgentCall<T>, usage: Usage): Promise<T> 
   // First attempt, then one retry quoting the problem
   let task = call.task;
   for (let attempt = 1; ; attempt++) {
+    call.signal?.throwIfAborted();
     const taskFile = join(runDir, `task-${attempt}.md`);
     await writeFile(taskFile, task);
     usage[call.role.model] = (usage[call.role.model] ?? 0) + 1;
-    const output = await run(bin, copilotArgs(call, taskFile, runDir), call);
+    const output = await logged(call, attempt, () =>
+      run(bin, copilotArgs(call, taskFile, runDir), call),
+    );
     await writeFile(join(runDir, `answer-${attempt}.txt`), output);
     try {
       const value = call.validate(extractJson(output));
@@ -138,9 +148,48 @@ export async function runAgent<T>(call: AgentCall<T>, usage: Usage): Promise<T> 
           `${call.name}: invalid answer (${(error as Error).message}); see ${runDir}`,
         );
       }
+      call.log?.(`${call.name}: invalid answer (${error.message}); retrying`);
       task = retryTask(call.task, output, error.message);
     }
   }
+}
+
+/** Run one CLI call, logging when it starts, while it works, and how it ended. */
+async function logged(
+  call: AgentCall<unknown>,
+  attempt: number,
+  work: () => Promise<string>,
+): Promise<string> {
+  // Say who started, then keep saying it's still going
+  const who = `${call.name} (${call.role.model}, ${call.role.effort})`;
+  const started = Date.now();
+  const retry = attempt > 1 ? ", retry" : "";
+  call.log?.(`${who} started${retry}`);
+  const heartbeat = setInterval(
+    () => call.log?.(`${who} still working, ${elapsed(started)}`),
+    HEARTBEAT_MS,
+  );
+  heartbeat.unref();
+
+  // Report how the call ended
+  try {
+    const output = await work();
+    call.log?.(`${who} answered in ${elapsed(started)}`);
+    return output;
+  } catch (error) {
+    call.log?.(`${who} failed after ${elapsed(started)}`);
+    throw error;
+  } finally {
+    clearInterval(heartbeat);
+  }
+}
+
+/** Time since a start, as `1m 05s` or `42s`. */
+export function elapsed(since: number, now = Date.now()): string {
+  const seconds = Math.round((now - since) / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const rest = String(seconds % 60).padStart(minutes > 0 ? 2 : 1, "0");
+  return minutes > 0 ? `${minutes}m ${rest}s` : `${rest}s`;
 }
 
 /** The task again, with the rejected answer and why it was rejected. */
@@ -157,35 +206,44 @@ function retryTask(task: string, answer: string, problem: string): string {
   ].join("\n\n");
 }
 
-/** Run the CLI, returning its output, or throwing on failure or timeout. */
+/** Run the CLI, returning its output, or throwing on failure, timeout or cancellation. */
 function run(bin: string, args: string[], call: AgentCall<unknown>): Promise<string> {
   return new Promise((resolve, reject) => {
-    const child = spawn(bin, args, {
-      cwd: call.cwd,
-      env: agentEnv(),
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    const { signal } = call;
+    if (signal?.aborted) {
+      reject(signal.reason);
+      return;
+    }
+    const child = spawnGroup(bin, args, { cwd: call.cwd, env: agentEnv() });
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (chunk: Buffer) => (stdout += chunk));
     child.stderr.on("data", (chunk: Buffer) => (stderr += chunk));
 
-    // Stop a run that takes too long, forcefully if it ignores the request
+    // Stop a run that takes too long or is cancelled, with the commands it started, forcefully
+    // if they ignore the request
+    const stop = () => stopGroup(child);
     let timedOut = false;
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill("SIGTERM");
-      setTimeout(() => child.kill("SIGKILL"), 5000).unref();
+      stop();
     }, call.timeoutMs);
+    signal?.addEventListener("abort", stop, { once: true });
+    const settled = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", stop);
+    };
 
     // Settle on exit
     child.on("error", (error) => {
-      clearTimeout(timer);
+      settled();
       reject(new AgentError(`${call.name}: can't run ${bin}: ${error.message}`));
     });
     child.on("close", (code) => {
-      clearTimeout(timer);
-      if (timedOut) {
+      settled();
+      if (signal?.aborted) {
+        reject(signal.reason);
+      } else if (timedOut) {
         reject(
           new AgentError(`${call.name}: timed out after ${Math.round(call.timeoutMs / 1000)}s`),
         );
