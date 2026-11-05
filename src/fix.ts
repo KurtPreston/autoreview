@@ -236,6 +236,6 @@ export async function answerThread(
     marker.decision = answer.decision;
     text = `${text}\n\n${decisionText(answer.decision)}`;
   }
-  const header = `**Fixer** · ${run.config.fixer.model} · ${label}${answer.decision ? " · decision" : ""}`;
+  const header = `**Autoreview fixer** · ${run.config.fixer.model} · ${label}${answer.decision ? " · decision" : ""}`;
   await run.fixer.reply(run.number, thread, compose(header, text, marker));
 }

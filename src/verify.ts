@@ -50,7 +50,7 @@ export async function verifyRound(run: Run, pr: PullRequest, start: string): Pro
       text = `${text}\n\n${decisionText(decision)}`;
     }
     const label = value === "defer" ? "for the author" : value;
-    const header = `**Reviewer** · ${run.config.reviewer.model} · ${label}${decision && value === "resolved" ? " · decision" : ""}`;
+    const header = `**Autoreview reviewer** · ${run.config.reviewer.model} · ${label}${decision && value === "resolved" ? " · decision" : ""}`;
     await run.reviewer.reply(run.number, thread, compose(header, text, marker));
     // A person who opened a thread resolves it themselves
     if (verdict === "resolved" && opener(thread) !== "person") {
@@ -68,7 +68,7 @@ export async function verifyRound(run: Run, pr: PullRequest, start: string): Pro
     await run.reviewer.comment(
       run.number,
       compose(
-        `**Reviewer** · ${run.config.reviewer.model}`,
+        `**Autoreview reviewer** · ${run.config.reviewer.model}`,
         ["Outside the diff, for the author:", ...unshown].join("\n\n"),
         { role: "reviewer", kind: "notes" },
       ),

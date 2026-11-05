@@ -80,7 +80,7 @@ export async function recheck(
     await run.reviewer.reply(
       run.number,
       thread,
-      compose(`**Reviewer** · ${run.config.reviewer.model} · resolved`, body, marker),
+      compose(`**Autoreview reviewer** · ${run.config.reviewer.model} · resolved`, body, marker),
     );
     if (opener(thread) !== "person") {
       await run.reviewer.resolve(thread);
@@ -118,7 +118,7 @@ export async function reviewNew(
   ].join("\n\n");
   await run.reviewer.comment(
     run.number,
-    compose(`**Reviewer** · ${run.config.reviewer.model}`, text, {
+    compose(`**Autoreview reviewer** · ${run.config.reviewer.model}`, text, {
       role: "reviewer",
       kind: "review",
       head: pr.headSha,
@@ -169,7 +169,7 @@ export async function postFindings(
       marker.deferred = true;
     }
     const label = forAuthor ? `${finding.severity} · for the author` : finding.severity;
-    const header = `**Reviewer** · ${run.config.reviewer.model} · ${label}`;
+    const header = `**Autoreview reviewer** · ${run.config.reviewer.model} · ${label}`;
     comments.push({
       path: finding.path,
       line: finding.line,
@@ -178,7 +178,7 @@ export async function postFindings(
   }
   if (comments.length > 0) {
     await run.reviewer.review(run.number, {
-      body: "🤖 Review comments",
+      body: "🤖 **Autoreview reviewer** · review comments",
       commit: pr.headSha,
       comments,
     });
