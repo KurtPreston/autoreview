@@ -130,8 +130,9 @@ test("folder files are read from the starting commit, shallowest first, for the 
 function monorepo(
   fixes: ((dir: string, task: string) => Answer)[],
   seed: (store: Store) => void = seedThread,
+  options: { trustBase?: boolean } = {},
 ): Setup {
-  const nested = setup({ fix: fixes, verify: [verdict("resolved")] }, { seed });
+  const nested = setup({ fix: fixes, verify: [verdict("resolved")] }, { seed, ...options });
   const { store, work } = nested;
 
   // main gains the folder configs; other/ fails every check, but nothing touches it
@@ -238,6 +239,30 @@ test("a fix can't loosen its own folder's checks", async () => {
   assert.equal(nested.calls.fix, 2);
   assert.deepEqual(outcome.commits, []);
   assert.equal(outcome.deferred, 1);
+});
+
+/** Run a pull request whose own commit drops pkg/foo's checks, reading configs from its base or not. */
+async function loosenedByPullRequest(trustBase: boolean) {
+  const tasks: string[] = [];
+  const nested = monorepo([fixB(tasks), fixB(tasks)], seedThread, { trustBase });
+  const { store, work } = nested;
+  write(work, { "pkg/foo/.autoreview.json": "{}" });
+  git(work, "commit", "--quiet", "-am", "Drop the checks");
+  store.pr.headSha = git(work, "rev-parse", "HEAD");
+  store.pr.baseSha = git(work, "rev-parse", "main");
+  store.diff = git(work, "diff", "main...HEAD");
+  return nested.run();
+}
+
+test("with configs from the base, a pull request can't drop the checks its fixes answer to", async () => {
+  // Read from the head, the pull request's own file lets a fix without ok.txt through
+  const fromHead = await loosenedByPullRequest(false);
+  assert.equal(fromHead.commits.length, 1);
+
+  // Read from the base, the fix still answers to the check, fails it twice, and is deferred
+  const fromBase = await loosenedByPullRequest(true);
+  assert.deepEqual(fromBase.commits, []);
+  assert.equal(fromBase.deferred, 1);
 });
 
 /** Move pkg/foo, its file included, to lib/foo, editing b.ts there, and write any other files. */

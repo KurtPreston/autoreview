@@ -6,16 +6,18 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
-import { loadConfig } from "./config.ts";
+import { loadConfig, loadConfigAt, loadConfigFile } from "./config.ts";
 import { Checkout } from "./git.ts";
 import { forgeKind, forges } from "./forges.ts";
 import { copilotAgents, deliberate } from "./loop.ts";
 import { followCheckout, MemoryForge, snapshot, type Store } from "./memory.ts";
+import { withNotice } from "./notice.ts";
 import { parseRemote, type Remote } from "./remote.ts";
 import { dispatchAfterPush, ownPush } from "./trigger.ts";
 
 const USAGE = `usage:
   autoreview run --pr <n> [--repo <dir>] [--checkout <dir>] [--dry-run] [--heavy] [--force]
+                 [--trusted-config] [--config <file>] [--notice <text>]
   autoreview threads --pr <n> [--repo <dir>]
 
   --repo      a clone of the repository (default: .), whose origin names the server
@@ -23,6 +25,11 @@ const USAGE = `usage:
   --dry-run   print what would be posted, and push nothing
   --heavy     also run heavyChecks: the machine can afford them
   --force     deliberate even without a label (as both roles), or on a draft or closed pull request
+  --trusted-config
+              read .autoreview.json files from the pull request's base, not its head, so
+              the pull request can't change the commands run on its behalf
+  --config    use this file as the root config, instead of the repository's
+  --notice    open every comment with this text, such as who runs autoreview and why
 
 Tokens: AUTOREVIEW_REVIEWER_TOKEN and AUTOREVIEW_FIXER_TOKEN post as two
 identities. Otherwise one identity posts as both: on GitHub, GITHUB_TOKEN, GH_TOKEN
@@ -39,6 +46,9 @@ async function main(): Promise<void> {
       "dry-run": { type: "boolean", default: false },
       heavy: { type: "boolean", default: false },
       force: { type: "boolean", default: false },
+      "trusted-config": { type: "boolean", default: false },
+      config: { type: "string" },
+      notice: { type: "string" },
     },
   });
 
@@ -94,7 +104,24 @@ async function main(): Promise<void> {
       console.error("autoreview: skipped, since autoreview's own push started this run");
       return;
     }
-    const config = await loadConfig(checkout.dir);
+    // Configs come from the operator's file, the base, or the head, in that order of trust
+    const trusted = values["trusted-config"];
+    if (trusted) {
+      await checkout.git("fetch", "--quiet", "origin", head.baseSha);
+    }
+    const config = values.config
+      ? await loadConfigFile(values.config)
+      : trusted
+        ? await loadConfigAt(checkout, head.baseSha)
+        : await loadConfig(checkout.dir);
+
+    // An operator's notice opens everything either role posts
+    if (values.notice) {
+      roles = {
+        reviewer: withNotice(roles.reviewer, values.notice),
+        fixer: withNotice(roles.fixer, values.notice),
+      };
+    }
     const usage = {};
     const log = (message: string) => console.error(`autoreview: ${message}`);
     const outcome = await untilStopped((signal) =>
@@ -108,6 +135,7 @@ async function main(): Promise<void> {
         push: !dryRun,
         heavy: values.heavy,
         force: values.force,
+        configSha: trusted ? head.baseSha : undefined,
         link: runLink(remote),
         signal,
         stopGraceMs: STOP_GRACE_MS - 1000,
