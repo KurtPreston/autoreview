@@ -27,7 +27,8 @@ Rules that keep a deliberation from running away:
 - A ruling at the exchange cap gets one more answer; if the reviewer still isn't satisfied, the thread is deferred.
 - A thread a person has commented in is left to them.
 - A run with nothing new to review and no open threads posts nothing.
-- A run started by the implementer's own push does nothing.
+- A run started by a push of autoreview's own commit does nothing. Fix commits carry an
+  `Autoreview: implementer` trailer, so this works even when one identity does everything.
 - If the branch moves during a run, the push is rejected and the run stops. The run that the push started takes over.
 
 All state lives in the pull request. Each comment ends with a hidden marker (`<!-- autoreview {…} -->`), so a run that crashed resumes where it stopped.

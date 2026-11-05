@@ -13,6 +13,7 @@ import { Gitea } from "./gitea.ts";
 import { copilotAgents, deliberate } from "./loop.ts";
 import { MemoryForge, snapshot } from "./memory.ts";
 import { findToken, parseRemote, type Remote } from "./remote.ts";
+import { ownPush } from "./trigger.ts";
 
 const USAGE = `usage:
   autoreview run --pr <n> [--repo <dir>] [--checkout <dir>] [--dry-run] [--heavy] [--force]
@@ -61,13 +62,6 @@ async function main(): Promise<void> {
     return;
   }
 
-  // A run started by the implementer's own push has nothing to do
-  const sender = process.env.AUTOREVIEW_SENDER;
-  if (sender && sender === (await implementer.login().catch(() => undefined))) {
-    console.error(`autoreview: skipped, since ${sender}'s own push started this run`);
-    return;
-  }
-
   // A dry run plays the deliberation against a copy of the pull request in memory
   const dryRun = values["dry-run"];
   let roles = { reviewer, implementer };
@@ -89,6 +83,11 @@ async function main(): Promise<void> {
     sha: head.headSha,
   });
   try {
+    // A run started by autoreview's own push has nothing to do
+    if (await ownPush(checkout, head.headSha)) {
+      console.error("autoreview: skipped, since autoreview's own push started this run");
+      return;
+    }
     const config = await loadConfig(checkout.dir);
     const usage = {};
     const outcome = await deliberate({

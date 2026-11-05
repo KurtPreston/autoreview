@@ -5,6 +5,9 @@ import { promisify } from "node:util";
 
 const exec = promisify(execFile);
 
+/** Marks autoreview's own commits, whichever identity pushed them. */
+export const TRAILER = { key: "Autoreview", value: "implementer" };
+
 /** Git and shell commands in one checkout. */
 export class Checkout {
   readonly dir: string;
@@ -35,14 +38,25 @@ export class Checkout {
     await this.git("clean", "-fd", "--quiet");
   }
 
-  /** Commit everything, returning the new commit, or undefined when nothing changed. */
+  /**
+   * Commit everything with autoreview's trailer, returning the new commit, or undefined
+   * when nothing changed.
+   */
   async commitAll(message: string): Promise<string | undefined> {
     if (!(await this.dirty())) {
       return undefined;
     }
     await this.git("add", "-A");
-    await this.git("commit", "--quiet", "--no-verify", "-m", message);
+    const trailer = `${TRAILER.key}: ${TRAILER.value}`;
+    await this.git("commit", "--quiet", "--no-verify", "-m", message, "--trailer", trailer);
     return this.head();
+  }
+
+  /** Whether a commit is one of autoreview's own, by its trailer. */
+  async isOwn(commit: string): Promise<boolean> {
+    const format = `--format=%(trailers:key=${TRAILER.key},valueonly)`;
+    const values = await this.git("log", "-1", format, commit);
+    return values.split("\n").some((value) => value.trim() === TRAILER.value);
   }
 
   /** Push the checkout's head to a branch, never forcing. Returns false when the branch moved. */

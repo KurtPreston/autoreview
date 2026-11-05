@@ -54,7 +54,7 @@ runs:
         AUTOREVIEW_REVIEWER_TOKEN: ${{ inputs.reviewer-token }}
         AUTOREVIEW_IMPLEMENTER_TOKEN: ${{ inputs.implementer-token }}
         GITEA_TOKEN: ${{ inputs.token }}
-        AUTOREVIEW_SENDER: ${{ github.event.sender.login }}
+        AUTOREVIEW_EVENT: ${{ github.event.action }}
         PR: ${{ inputs.pr }}
         HEAVY: ${{ inputs.heavy }}
       run: |
