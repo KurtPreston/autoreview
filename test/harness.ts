@@ -8,7 +8,7 @@ import { parseConfig, type Config } from "../src/config.ts";
 import { Checkout } from "../src/git.ts";
 import { compose } from "../src/markers.ts";
 import { deliberate, type Agents, type Outcome } from "../src/loop.ts";
-import { MemoryForge, type Store } from "../src/memory.ts";
+import { followCheckout, MemoryForge, type Store } from "../src/memory.ts";
 import type { Answer, Review, Verification } from "../src/schemas.ts";
 
 export const FILE = ["export function grow(n) {", "  return n * 2;", "}", ""].join("\n");
@@ -62,7 +62,13 @@ export interface Setup {
 
 export function setup(
   script: Script,
-  options: { config?: object; seed?: (store: Store) => void; signal?: AbortSignal } = {},
+  options: {
+    config?: object;
+    seed?: (store: Store) => void;
+    signal?: AbortSignal;
+    /** Push nothing, with the diff following the checkout, as `--dry-run` does. */
+    dryRun?: boolean;
+  } = {},
 ): Setup {
   const { origin, work } = repository();
   const store: Store = {
@@ -86,6 +92,9 @@ export function setup(
     nextId: 1,
   };
   options.seed?.(store);
+  if (options.dryRun) {
+    followCheckout(store, new Checkout(work));
+  }
 
   // Agents play back the script, counting calls
   const calls = { review: 0, fix: 0, verify: 0 };
@@ -117,7 +126,7 @@ export function setup(
       fixer: new MemoryForge(store, "fixer-bot"),
       agents,
       usage: {},
-      push: true,
+      push: !options.dryRun,
       heavy: false,
       force: false,
       signal: options.signal,

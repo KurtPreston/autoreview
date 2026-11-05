@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
-import { git, setup, type Setup } from "./harness.ts";
+import { FILE, git, key, reply, seedFinding, setup, verdict, type Setup } from "./harness.ts";
+import type { Answer } from "../src/schemas.ts";
 
 const LINES = Array.from({ length: 12 }, (_, i) => `line ${i + 1}`);
 
@@ -61,4 +62,46 @@ test("a finding on a line only a merge from the base changed isn't posted inline
   );
   const review = s.store.comments.filter((c) => c.body.includes('"kind":"review"')).at(-1);
   assert.match(review?.body ?? "", /Outside the diff[\s\S]*`README\.md:1`/);
+});
+
+test("in a dry run, a verify finding on a line a fix added is posted inline", async () => {
+  const added = "export function shrink(n) {\n  return n / 2;\n}\n";
+  const s = setup(
+    {
+      fix: [
+        (dir): Answer => {
+          writeFileSync(join(dir, "a.ts"), `${FILE}\n${added}`);
+          return { action: "fix", body: "Added shrink.", commit: "Add shrink" };
+        },
+        reply,
+      ],
+      verify: [
+        (keys) => ({
+          threads: keys.map((k) => ({
+            key: k,
+            verdict: "resolved",
+            body: "Fixed.",
+          })),
+          findings: [
+            {
+              path: "a.ts",
+              line: 6,
+              severity: "minor",
+              body: "Halving rounds.",
+              forAuthor: false,
+            },
+          ],
+        }),
+        verdict("resolved"),
+      ],
+    },
+    { seed: seedFinding, dryRun: true },
+  );
+  await s.run();
+
+  // The fix is only in the checkout, but the finding on its line still gets a thread
+  assert.notEqual(s.store.pr.headSha, git(s.work, "rev-parse", "HEAD"));
+  assert.match(git(s.work, "ls-remote", "origin", "ferns"), new RegExp(`^${s.store.pr.headSha}`));
+  assert.ok(s.store.threads.some((t) => t.key === key));
+  assert.ok(s.store.threads.some((t) => t.key === "a.ts:+6"));
 });
