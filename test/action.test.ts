@@ -11,12 +11,19 @@ import { promisify } from "node:util";
 
 const HERE = new URL("..", import.meta.url).pathname;
 const action = readFileSync(join(HERE, "action.yml"), "utf8");
-const cli = readFileSync(join(HERE, "src", "autoreview.ts"), "utf8");
+const cli = ["autoreview.ts", "forges.ts"]
+  .map((file) => readFileSync(join(HERE, "src", file), "utf8"))
+  .join("\n");
+/** Overrides for local runs, which the action has no reason to set. */
+const LOCAL_ONLY = new Set(["AUTOREVIEW_FORGE"]);
 
 test("the action passes every variable the tool reads", () => {
   // Each AUTOREVIEW_* or token variable the CLI reads is set by the action
   const read = new Set([...cli.matchAll(/\b(AUTOREVIEW_[A-Z_]+|GITEA_TOKEN)\b/g)].map((m) => m[1]));
   for (const name of read) {
+    if (LOCAL_ONLY.has(name)) {
+      continue;
+    }
     assert.match(action, new RegExp(`^\\s+${name}:`, "m"), `action.yml doesn't set ${name}`);
   }
   assert.match(action, /COPILOT_GITHUB_TOKEN: \$\{\{ inputs\.copilot-token \}\}/);

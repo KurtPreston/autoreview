@@ -7,12 +7,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { loadConfig } from "./config.ts";
-import type { Forge } from "./forge.ts";
 import { Checkout } from "./git.ts";
-import { Gitea } from "./gitea.ts";
+import { forges } from "./forges.ts";
 import { copilotAgents, deliberate } from "./loop.ts";
 import { MemoryForge, snapshot } from "./memory.ts";
-import { findToken, parseRemote, type Remote } from "./remote.ts";
+import { parseRemote, type Remote } from "./remote.ts";
 import { ownPush } from "./trigger.ts";
 
 const USAGE = `usage:
@@ -26,7 +25,9 @@ const USAGE = `usage:
   --force     review even without the label, or on a draft or closed pull request
 
 Tokens: AUTOREVIEW_REVIEWER_TOKEN and AUTOREVIEW_IMPLEMENTER_TOKEN post as two
-identities; otherwise GITEA_TOKEN, or tea's login, posts as one.`;
+identities. Otherwise one identity posts as both: on GitHub, GITHUB_TOKEN, GH_TOKEN
+or gh's login; on Gitea, GITEA_TOKEN or tea's login. AUTOREVIEW_FORGE=github|gitea
+overrides which forge the origin is taken to be.`;
 
 async function main(): Promise<void> {
   const { positionals, values } = parseArgs({
@@ -119,26 +120,6 @@ function findRemote(repo: string): Remote {
     encoding: "utf8",
   }).trim();
   return parseRemote(origin);
-}
-
-/** One forge per role when both bot tokens are set, otherwise one shared identity. */
-async function forges(remote: Remote): Promise<{ reviewer: Forge; implementer: Forge }> {
-  const { AUTOREVIEW_REVIEWER_TOKEN: reviewer, AUTOREVIEW_IMPLEMENTER_TOKEN: implementer } =
-    process.env;
-  if (reviewer && implementer) {
-    return {
-      reviewer: new Gitea({ ...remote, token: reviewer }),
-      implementer: new Gitea({ ...remote, token: implementer }),
-    };
-  }
-  const token = await findToken(remote.url);
-  if (!token) {
-    throw new Error(
-      `no token for ${remote.url}: set the AUTOREVIEW_* tokens or GITEA_TOKEN, or log in with tea`,
-    );
-  }
-  const shared = new Gitea({ ...remote, token });
-  return { reviewer: shared, implementer: shared };
 }
 
 /**
