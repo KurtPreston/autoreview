@@ -101,8 +101,17 @@ export async function loadConfigAt(checkout: Checkout, sha: string): Promise<Con
 
 /** Read a config from a file outside the repository, such as one its operator supplies. */
 export async function loadConfigFile(path: string): Promise<Config> {
+  const text = await readFile(path, "utf8");
+
+  // Name the file when it isn't JSON, as for any other mistake in it
+  let raw: unknown;
   try {
-    return parseConfig(JSON.parse(await readFile(path, "utf8")));
+    raw = JSON.parse(text);
+  } catch (error) {
+    throw new ConfigError((error as Error).message, path);
+  }
+  try {
+    return parseConfig(raw);
   } catch (error) {
     // Name the operator's file rather than the repository's
     if (error instanceof ConfigError) {

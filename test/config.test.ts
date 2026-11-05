@@ -82,6 +82,13 @@ test("an operator's config file names itself in errors", async () => {
     assert.ok(error.message.startsWith(`${path}: `), error.message);
     return true;
   });
+
+  await writeFile(path, "{ not json");
+  await assert.rejects(loadConfigFile(path), (error: Error) => {
+    assert.ok(error instanceof ConfigError);
+    assert.ok(error.message.startsWith(`${path}: `), error.message);
+    return true;
+  });
 });
 
 test("workflows to start after a fix are listed by file name", () => {
