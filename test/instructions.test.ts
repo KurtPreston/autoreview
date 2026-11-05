@@ -57,3 +57,49 @@ test("front matter is read only from a leading block", () => {
   assert.deepEqual(frontmatter("text\n---\napplyTo: '**'\n---\n"), {});
   assert.deepEqual(frontmatter("---\napplyTo: '**'\n"), {});
 });
+
+test("front matter values are read as YAML scalars", () => {
+  // Comments end a value, but not a quoted one
+  assert.deepEqual(
+    frontmatter(
+      '---\n# Settings\napplyTo: "**/*.ts" # TypeScript\nexcludeAgent: code-review # fixer only\n' +
+        "name: 'a # b' # c\nnote: a#b\n---\n",
+    ),
+    { applyTo: "**/*.ts", excludeAgent: "code-review", name: "a # b", note: "a#b" },
+  );
+
+  // Block scalars, literal or folded, with their chomping
+  assert.deepEqual(
+    frontmatter(
+      "---\nfolded: >-\n  **/*.ts,\n  **/*.tsx\n\nkept: |+ # c\n  a\n  b\n\nclipped: >\n  a\n\n  b\n" +
+        "excludeAgent: >\n  cloud-agent\n---\n",
+    ),
+    {
+      folded: "**/*.ts, **/*.tsx",
+      kept: "a\nb\n\n",
+      clipped: "a\nb\n",
+      excludeAgent: "cloud-agent\n",
+    },
+  );
+
+  // Plain and quoted values that continue on indented lines
+  assert.deepEqual(
+    frontmatter(
+      "---\nplain: a,\n  b # c\n  d\nsingle: 'it''s\n  here'\ndouble:\n  \"a\\tb\\\n  c\\u0021\"\n---\n",
+    ),
+    { plain: "a, b", single: "it's here", double: "a\tbc!" },
+  );
+});
+
+test("commented and multiline values still match and exclude", async () => {
+  const dir = await checkout({
+    [`${DIR}/ts.instructions.md`]:
+      '---\napplyTo: "**/*.ts" # TypeScript\nexcludeAgent: "code-review" # fixer only\n---\n',
+    [`${DIR}/web.instructions.md`]:
+      "---\napplyTo: >-\n  **/*.css,\n  **/*.html\nexcludeAgent: >\n  cloud-agent\n---\n",
+  });
+  assert.deepEqual(await instructionsFor({ dir, changed: ["src/a.ts", "web/b.html"] }), [
+    { path: `${DIR}/ts.instructions.md`, applyTo: "**/*.ts", excludes: "reviewer" },
+    { path: `${DIR}/web.instructions.md`, applyTo: "**/*.css,**/*.html", excludes: "fixer" },
+  ]);
+});
