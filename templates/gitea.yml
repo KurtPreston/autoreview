@@ -15,8 +15,7 @@ jobs:
   autoreview:
     if: >-
       (contains(github.event.pull_request.labels.*.name, 'autoreview') ||
-        contains(github.event.pull_request.labels.*.name, 'autofix')) &&
-      !github.event.pull_request.draft
+        contains(github.event.pull_request.labels.*.name, 'autofix'))
     runs-on: {{runsOn}}
     timeout-minutes: 120
     steps:

@@ -43,7 +43,7 @@ export interface Deliberation {
   push: boolean;
   /** Run heavy checks too: the runner can afford them. */
   heavy: boolean;
-  /** Deliberate even without a label (as both roles), or on a draft or closed pull request. */
+  /** Deliberate even without a label (as both roles), or on a closed pull request. */
   force: boolean;
   /**
    * The commit whose folder configs apply, such as the pull request's base, so the pull request
@@ -107,12 +107,10 @@ export async function deliberate(input: Deliberation): Promise<Outcome> {
   };
   const pr = await input.reviewer.pullRequest(number);
 
-  // Only open pull requests that ask for a role, and not drafts
+  // Only open pull requests that ask for a role; a labelled draft counts, so it can be hardened
+  // before people review it
   if (!input.force && pr.state !== "open") {
     return { ...outcome, skipped: "the pull request is closed" };
-  }
-  if (!input.force && pr.draft) {
-    return { ...outcome, skipped: "the pull request is a draft" };
   }
   const roles = rolesFor(pr, input);
   if (!roles.review && !roles.fix) {

@@ -24,7 +24,7 @@ const USAGE = `usage:
   --checkout  deliberate in this checkout (CI); otherwise a temporary worktree of --repo
   --dry-run   print what would be posted, and push nothing
   --heavy     also run heavyChecks: the machine can afford them
-  --force     deliberate even without a label (as both roles), or on a draft or closed pull request
+  --force     deliberate even without a label (as both roles), or on a closed pull request
   --trusted-config
               read .autoreview.json files from the pull request's base, not its head, so
               the pull request can't change the commands run on its behalf
