@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { spawnGroup, stopGroup } from "./processes.ts";
 
 const exec = promisify(execFile);
 
@@ -98,24 +99,47 @@ export class Checkout {
 
   /**
    * Run a shell command, returning whether it passed and the tail of its output. Aborting the
-   * signal stops the command and throws.
+   * signal stops the command and everything it started, then throws once they've stopped.
    */
-  async check(command: string, signal?: AbortSignal): Promise<{ ok: boolean; output: string }> {
-    try {
-      const { stdout, stderr } = await exec("sh", ["-c", command], {
-        cwd: this.dir,
-        maxBuffer: 64 * 1024 * 1024,
-        signal,
+  check(command: string, signal?: AbortSignal): Promise<{ ok: boolean; output: string }> {
+    return new Promise((resolve, reject) => {
+      if (signal?.aborted) {
+        reject(signal.reason);
+        return;
+      }
+      const child = spawnGroup("sh", ["-c", command], { cwd: this.dir });
+
+      // Keep only what the tail could show, and a character more to tell it was cut
+      let stdout = "";
+      let stderr = "";
+      child.stdout
+        .setEncoding("utf8")
+        .on("data", (chunk) => (stdout = (stdout + chunk).slice(-4001)));
+      child.stderr
+        .setEncoding("utf8")
+        .on("data", (chunk) => (stderr = (stderr + chunk).slice(-4001)));
+      const stop = () => stopGroup(child);
+      signal?.addEventListener("abort", stop, { once: true });
+      const settled = () => signal?.removeEventListener("abort", stop);
+
+      // Settle once the command and anything holding its output have stopped
+      child.on("error", (error) => {
+        settled();
+        resolve({ ok: false, output: tail(error.message) });
       });
-      return { ok: true, output: tail(stdout + stderr) };
-    } catch (error) {
-      signal?.throwIfAborted();
-      const failed = error as { stdout?: string; stderr?: string; message: string };
-      return {
-        ok: false,
-        output: tail(`${failed.stdout ?? ""}${failed.stderr ?? ""}` || failed.message),
-      };
-    }
+      child.on("close", (code) => {
+        settled();
+        if (signal?.aborted) {
+          reject(signal.reason);
+          return;
+        }
+        const output = tail(stdout + stderr);
+        resolve({
+          ok: code === 0,
+          output: code === 0 || output ? output : `Command failed: ${command}`,
+        });
+      });
+    });
   }
 }
 

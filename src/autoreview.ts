@@ -105,6 +105,7 @@ async function main(): Promise<void> {
         force: values.force,
         link: runLink(remote),
         signal,
+        stopGraceMs: STOP_GRACE_MS - 1000,
         log,
       }),
     );
@@ -124,16 +125,20 @@ async function main(): Promise<void> {
   }
 }
 
+/** How long a cancelled run has to wind down before the process exits. */
+const STOP_GRACE_MS = 5000;
+
 /**
  * Run work that stops when the job is cancelled or times out: the runner sends SIGINT, then
- * SIGTERM. The work gets a moment to mark its commit status, then the process exits.
+ * SIGTERM. The work gets a moment to stop what it started and mark its commit status, then
+ * the process exits.
  */
 async function untilStopped<T>(work: (signal: AbortSignal) => Promise<T>): Promise<T> {
   const stop = new AbortController();
   const handlers = (["SIGINT", "SIGTERM"] as const).map((name) => {
     const handler = () => {
       stop.abort(new Error(`cancelled by ${name}`));
-      setTimeout(() => process.exit(name === "SIGINT" ? 130 : 143), 5000).unref();
+      setTimeout(() => process.exit(name === "SIGINT" ? 130 : 143), STOP_GRACE_MS).unref();
     };
     process.once(name, handler);
     return [name, handler] as const;

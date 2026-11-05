@@ -1,13 +1,16 @@
 #!/usr/bin/env node
 // A stand-in for the Copilot CLI in tests.
 // Plays back answers from the JSON list in $FAKE_COPILOT (one per call, counted in a
-// state file beside it), and appends each call's arguments and cwd to $FAKE_COPILOT.log.
+// state file beside it), writing any files a step lists first, and appends each call's
+// arguments and cwd to $FAKE_COPILOT.log.
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 
 interface Step {
   stdout?: string;
   exit?: number;
   sleepMs?: number;
+  /** Files to write, relative to the working directory, as a fixer's edits. */
+  write?: Record<string, string>;
 }
 
 // Find this call's step
@@ -27,8 +30,11 @@ function taskText(): string {
   return path ? readFileSync(path, "utf8") : "";
 }
 
-// Answer, after an optional pause
+// Edit files, then answer after an optional pause
 const step = steps[Math.min(index, steps.length - 1)];
+for (const [path, text] of Object.entries(step.write ?? {})) {
+  writeFileSync(path, text);
+}
 setTimeout(() => {
   process.stdout.write(step.stdout ?? "");
   process.exit(step.exit ?? 0);

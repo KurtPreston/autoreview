@@ -1,8 +1,8 @@
-import { spawn } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Config, RoleConfig } from "./config.ts";
+import { spawnGroup, stopGroup } from "./processes.ts";
 import { extractJson, SchemaError, type Validator } from "./schemas.ts";
 
 /** Which tools an agent may use, in the Copilot CLI's permission syntax. */
@@ -214,21 +214,15 @@ function run(bin: string, args: string[], call: AgentCall<unknown>): Promise<str
       reject(signal.reason);
       return;
     }
-    const child = spawn(bin, args, {
-      cwd: call.cwd,
-      env: agentEnv(),
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    const child = spawnGroup(bin, args, { cwd: call.cwd, env: agentEnv() });
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (chunk: Buffer) => (stdout += chunk));
     child.stderr.on("data", (chunk: Buffer) => (stderr += chunk));
 
-    // Stop a run that takes too long or is cancelled, forcefully if it ignores the request
-    const stop = () => {
-      child.kill("SIGTERM");
-      setTimeout(() => child.kill("SIGKILL"), 5000).unref();
-    };
+    // Stop a run that takes too long or is cancelled, with the commands it started, forcefully
+    // if they ignore the request
+    const stop = () => stopGroup(child);
     let timedOut = false;
     const timer = setTimeout(() => {
       timedOut = true;

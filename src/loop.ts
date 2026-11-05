@@ -47,6 +47,11 @@ export interface Deliberation {
   link?: string;
   /** Stops the run when aborted, as when the job is cancelled or times out. */
   signal?: AbortSignal;
+  /**
+   * Once cancelled, how long to wait for the work under way to stop before rejecting, so a push
+   * that lands meanwhile still gets the run's ending. No wait by default.
+   */
+  stopGraceMs?: number;
   log: (message: string) => void;
 }
 
@@ -120,25 +125,30 @@ export async function deliberate(input: Deliberation): Promise<Outcome> {
     url: input.link,
     log: input.log,
   });
+
+  // Cancellation can come at any point, so race it against setup as well as the rounds,
+  // and stop the abandoned rounds at their next call to the forge, checkout or agents
+  const { signal } = input;
+  const run = {
+    ...input,
+    reviewer: until(input.reviewer, signal),
+    fixer: until(input.fixer, signal),
+    checkout: until(input.checkout, signal),
+    agents: until(input.agents, signal),
+    roles,
+    progress,
+  };
+  const work = deliberateFrom(run, pr, outcome);
   try {
-    // Cancellation can come at any point, so race it against setup as well as the rounds,
-    // and stop the abandoned rounds at their next call to the forge, checkout or agents
-    const { signal } = input;
-    const run = {
-      ...input,
-      reviewer: until(input.reviewer, signal),
-      fixer: until(input.fixer, signal),
-      checkout: until(input.checkout, signal),
-      agents: until(input.agents, signal),
-      roles,
-      progress,
-    };
-    const result = await Promise.race([deliberateFrom(run, pr, outcome), aborted(signal)]);
+    const result = await Promise.race([work, aborted(signal)]);
     await progress.done(describeOutcome(result));
     return result;
   } catch (error) {
-    const ending = input.signal?.aborted ? "Stopped" : "Failed";
+    const ending = signal?.aborted ? "Stopped" : "Failed";
     await progress.failed(`${ending}: ${(error as Error).message}`);
+    if (signal?.aborted) {
+      await settled(work, input.stopGraceMs ?? 0);
+    }
     throw error;
   }
 }
@@ -173,6 +183,19 @@ function aborted(signal: AbortSignal | undefined): Promise<never> {
     signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
   });
 }
+
+/** Wait for work to finish, however it ends, but no longer than a time limit. */
+async function settled(work: Promise<unknown>, limitMs: number): Promise<void> {
+  if (limitMs <= 0) {
+    return;
+  }
+  let timer: NodeJS.Timeout | undefined;
+  const limit = new Promise<void>((resolve) => (timer = setTimeout(resolve, limitMs)));
+  await Promise.race([work.then(nothing, nothing), limit]);
+  clearTimeout(timer);
+}
+
+function nothing(): void {}
 
 /**
  * The same object, but its methods throw the signal's reason once it's aborted, so work
