@@ -10,7 +10,7 @@ export type Role = "reviewer" | "fixer";
 export interface Marker {
   role: Role;
   /** What the comment is. */
-  kind: "finding" | "answer" | "verdict" | "review" | "summary";
+  kind: "finding" | "answer" | "verdict" | "review" | "summary" | "notes";
   /** A finding's severity, an answer's action, or a verdict. */
   value?: string;
   /** Set when this comment hands the thread to the author. */

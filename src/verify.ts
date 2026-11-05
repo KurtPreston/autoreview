@@ -58,12 +58,23 @@ export async function verifyRound(run: Run, pr: PullRequest, start: string): Pro
     }
   }
 
-  // New findings may only sit on lines this round added
-  const notes = await postFindings(run, pr, {
+  // New findings may only sit on lines this round added; those the pull request's own diff
+  // doesn't show, such as a line a fix restored to the base's, become notes for the author
+  const { notes, unshown } = await postFindings(run, pr, {
     findings: verification.findings,
     anchors: diffLines(changes, false),
   });
-  if (notes.length > 0) {
-    run.log(`dropped ${notes.length} findings outside this round's changes`);
+  if (unshown.length > 0) {
+    await run.reviewer.comment(
+      run.number,
+      compose(
+        `**Reviewer** · ${run.config.reviewer.model}`,
+        ["Outside the diff, for the author:", ...unshown].join("\n\n"),
+        { role: "reviewer", kind: "notes" },
+      ),
+    );
+  }
+  if (notes.length > unshown.length) {
+    run.log(`dropped ${notes.length - unshown.length} findings outside this round's changes`);
   }
 }

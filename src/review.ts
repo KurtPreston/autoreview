@@ -108,7 +108,7 @@ export async function reviewNew(
   await tidy(run);
 
   // Post findings as threads, then the summary that records what was reviewed
-  const notes = await postFindings(run, pr, {
+  const { notes } = await postFindings(run, pr, {
     findings: review.findings.slice(0, MAX_FINDINGS),
     anchors: diffLines(diff),
   });
@@ -130,13 +130,13 @@ export async function reviewNew(
 /**
  * Post findings that sit on lines the diff shows, and the pull request's diff too, as one
  * review. Returns notes for the rest, which can't be anchored, or would land in an existing
- * conversation.
+ * conversation, and among them those on lines the diff shows but the pull request's doesn't.
  */
 export async function postFindings(
   run: Run,
   pr: PullRequest,
   { findings, anchors }: { findings: Finding[]; anchors: Map<string, Set<number>> },
-): Promise<string[]> {
+): Promise<{ notes: string[]; unshown: string[] }> {
   // Lines our findings already sit on; GitHub numbers further threads on a line `#2`, and so on
   const ours = (await run.reviewer.threads(run.number)).filter((t) => opener(t) === "ours");
   const taken = new Set(ours.map((t) => t.key.replace(/#\d+$/, "")));
@@ -146,12 +146,18 @@ export async function postFindings(
   const shown = findings.length > 0 ? diffLines(await run.reviewer.diff(run.number)) : new Map();
   const comments: NewComment[] = [];
   const notes: string[] = [];
+  const unshown: string[] = [];
   for (const finding of findings) {
     // Anchor on a line both diffs show that we haven't raised anything on yet
     const key = `${finding.path}:+${finding.line}`;
-    const anchored = [anchors, shown].every((lines) => lines.get(finding.path)?.has(finding.line));
-    if (!anchored || taken.has(key)) {
-      notes.push(`- \`${finding.path}:${finding.line}\` (${finding.severity}): ${finding.body}`);
+    const inDiff = anchors.get(finding.path)?.has(finding.line) ?? false;
+    const inPr = shown.get(finding.path)?.has(finding.line) ?? false;
+    if (!inDiff || !inPr || taken.has(key)) {
+      const note = `- \`${finding.path}:${finding.line}\` (${finding.severity}): ${finding.body}`;
+      notes.push(note);
+      if (inDiff && !inPr && !taken.has(key)) {
+        unshown.push(note);
+      }
       continue;
     }
     taken.add(key);
@@ -177,5 +183,5 @@ export async function postFindings(
       comments,
     });
   }
-  return notes;
+  return { notes, unshown };
 }
