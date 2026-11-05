@@ -30,7 +30,6 @@ test("bare names are found in changed folders and the folders above them", async
     changed: ["packages/foo/src/a.ts", "packages/foo/README.md"],
   });
   assert.deepEqual(context, [
-    "AGENTS.md",
     "packages/AGENTS.md",
     "packages/foo/AGENTS.md",
     "packages/foo/src/AGENTS.md",
@@ -44,11 +43,11 @@ test("entries with a path stay root-only, and listed files aren't repeated", asy
     context: ["docs/style.md", "CLAUDE.md", "pkg/CLAUDE.md"],
     changed: ["pkg/docs/x.ts"],
   });
-  assert.deepEqual(context, ["docs/style.md", "CLAUDE.md", "pkg/CLAUDE.md"]);
+  assert.deepEqual(context, []);
 });
 
 test("a change at the root adds nothing", async () => {
   const dir = await checkout(["AGENTS.md", "pkg/AGENTS.md"]);
   const context = await contextFor({ dir, context: ["AGENTS.md"], changed: ["a.ts"] });
-  assert.deepEqual(context, ["AGENTS.md"]);
+  assert.deepEqual(context, []);
 });

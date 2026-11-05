@@ -15,8 +15,12 @@ export function render(name: string, vars: Record<string, string | number>): str
   });
 }
 
-/** The shared preamble: the deliberation's rules, the project, and the pull request. */
-export function common(pr: PullRequest, config: Config): string {
+/**
+ * The shared preamble: the deliberation's rules, the project, and the pull request. The
+ * configured context applies to the whole repository, and each of `conventions`, found in a
+ * folder the pull request changes, to the code under its folder.
+ */
+export function common(pr: PullRequest, config: Config, conventions: string[] = []): string {
   const visual =
     "It can only be judged by looking at the result (a rendering, a layout, an animation)";
   return render("common", {
@@ -26,7 +30,10 @@ export function common(pr: PullRequest, config: Config): string {
         ? ""
         : `\n- ${visual}, since visual checks aren't available here.`,
     }),
-    context: config.context.map((path) => `\`${path}\``).join(", "),
+    context: quoted(config.context),
+    conventions: conventions.length
+      ? ` Then read these, from the folders the pull request changes: ${quoted(conventions)}. Each applies to the code under its folder, on top of those above it.`
+      : "",
     number: pr.number,
     title: pr.title,
     author: pr.author,
@@ -34,6 +41,10 @@ export function common(pr: PullRequest, config: Config): string {
     baseRef: pr.baseRef,
     body: pr.body.trim() || "(no description)",
   });
+}
+
+function quoted(paths: string[]): string {
+  return paths.map((path) => `\`${path}\``).join(", ");
 }
 
 /** The text that differs by deferral mode in the fix, review and verify prompts. */

@@ -54,6 +54,8 @@ export interface Roles {
 /** A deliberation under way, with the roles its labels ask for. */
 export interface Run extends Deliberation {
   roles: Roles;
+  /** Convention files in the folders the pull request changes, beyond the configured context. */
+  conventions: string[];
 }
 
 export interface Outcome {
@@ -108,12 +110,12 @@ export async function deliberate(input: Deliberation): Promise<Outcome> {
   }
 
   // Add convention files found in the folders the pull request changes
-  const context = await contextFor({
+  const conventions = await contextFor({
     dir: checkout.dir,
     context: config.context,
     changed: changedFiles(await input.reviewer.diff(number)),
   });
-  const run: Run = { ...input, config: { ...config, context }, roles };
+  const run: Run = { ...input, roles, conventions };
 
   // Recheck what the author's new commits settle, and review them
   const changes = roles.review ? await newChanges(run, pr) : undefined;

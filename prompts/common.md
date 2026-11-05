@@ -11,7 +11,7 @@ Other people and bots may review the pull request too. Their threads are deliber
 
 ## The project
 
-You are in a checkout of the repository at the pull request's head. Read these first for the project's conventions: {{context}}. A file in a folder applies to the code under that folder, on top of those above it. Follow the project's own rules over general preferences.
+You are in a checkout of the repository at the pull request's head. Read these first for the project's conventions: {{context}}.{{conventions}} Follow the project's own rules over general preferences.
 
 ## The pull request
 

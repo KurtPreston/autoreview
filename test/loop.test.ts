@@ -487,7 +487,10 @@ test("agents are pointed at the convention files in the folders the pull request
 
   // The review's task lists the changed folder's file, and not the other one
   await nested.run();
-  assert.match(nested.reviews[0], /`AGENTS\.md`, `pkg\/AGENTS\.md`/);
+  assert.match(
+    nested.reviews[0],
+    /conventions: `AGENTS\.md`\. Then read[^.]*: `pkg\/AGENTS\.md`\./,
+  );
   assert.doesNotMatch(nested.reviews[0], /other\/AGENTS\.md/);
 });
 
@@ -512,5 +515,5 @@ test("a file moved unchanged into a folder points agents at that folder's conven
   assert.doesNotMatch(store.diff, /^\+\+\+ b\/pkg\/README\.md$/m);
 
   await moved.run();
-  assert.match(moved.reviews[0], /`AGENTS\.md`, `pkg\/AGENTS\.md`/);
+  assert.match(moved.reviews[0], /conventions: `AGENTS\.md`\. Then read[^.]*: `pkg\/AGENTS\.md`\./);
 });

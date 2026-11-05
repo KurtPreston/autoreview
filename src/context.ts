@@ -1,10 +1,11 @@
-/** The convention files agents read first: the configured ones, and per-folder copies near the change. */
+/** The per-folder convention files near a change, read on top of the configured ones. */
 import { stat } from "node:fs/promises";
 import { join, posix } from "node:path";
 
 /**
- * The configured context, then each bare filename in it (such as `AGENTS.md`) found in a
- * folder the pull request changes or any folder above one. Entries with a path stay as given.
+ * Each bare filename in the configured context (such as `AGENTS.md`) found in a folder the
+ * pull request changes or any folder above one, short of the root. Entries with a path, and
+ * files the context already lists, aren't repeated.
  */
 export async function contextFor({
   dir,
@@ -38,7 +39,7 @@ export async function contextFor({
 
   // Shallower folders first, so broader conventions come before narrower ones
   found.sort((a, b) => depth(a) - depth(b) || a.localeCompare(b));
-  return [...context, ...found];
+  return found;
 }
 
 function depth(path: string): number {
