@@ -45,3 +45,7 @@ jobs:
       # Deliberate: review, fix and reply, and defer what's for the author
       # This repository is the action, so a pull request runs its own version
       - uses: ./
+        with:
+          # The workflow's own token, unless a COPILOT_GITHUB_TOKEN secret holds a token with
+          # the "Copilot Requests" permission, for accounts whose Copilot policy refuses it
+          copilot-token: ${{ secrets.COPILOT_GITHUB_TOKEN || github.token }}

@@ -163,7 +163,11 @@ test("on GitHub, the workflow uses the workflow's token, and checks are started 
   assert.ok(workflow.includes(`uses: ${new URL(ACTION).pathname.slice(1)}@v1\n`));
   assert.match(workflow, /copilot-requests: write/);
   assert.match(workflow, /head\.repo\.full_name == github\.repository/);
-  assert.doesNotMatch(workflow, /\{\{\w+\}\}|secrets\./);
+  assert.doesNotMatch(workflow, /\{\{\w+\}\}/);
+  assert.match(
+    workflow,
+    /copilot-token: \$\{\{ secrets\.COPILOT_GITHUB_TOKEN \|\| github\.token \}\}/,
+  );
 
   // Pull request checks that can be started by hand are, and the others are named
   const config = JSON.parse(readFileSync(join(repo, ".autoreview.json"), "utf8"));
