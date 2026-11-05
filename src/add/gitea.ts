@@ -2,10 +2,10 @@
 // labels, add the bot accounts as collaborators, and optionally store the user-level secrets.
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { CONFIG_FILE, DEFAULTS } from "../config.ts";
+import { DEFAULTS } from "../config.ts";
 import { Gitea } from "../gitea.ts";
 import { findToken, type Remote } from "../remote.ts";
-import { fill, guessConfig, setupSteps, template, writeNew } from "./files.ts";
+import { fill, guessConfig, setupSteps, template, writeConfig, writeNew } from "./files.ts";
 import { ACTION, type AddOptions } from "./options.ts";
 import { vendor } from "./vendor.ts";
 
@@ -41,12 +41,8 @@ export async function addGitea(remote: Remote, options: AddOptions): Promise<voi
     log,
   );
 
-  // The config, with checks guessed from the project's scripts
-  await writeNew(
-    join(repo, CONFIG_FILE),
-    `${JSON.stringify(await guessConfig(repo), null, 2)}\n`,
-    log,
-  );
+  // The config, when there are checks to guess from the project's scripts
+  await writeConfig(repo, await guessConfig(repo), log);
 
   // Labels, and the bots as collaborators (Gitea adds them without an invitation)
   const labels = [

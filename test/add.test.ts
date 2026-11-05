@@ -66,7 +66,6 @@ test("enabling a repository writes its workflow and config, labels, and collabor
   assert.deepEqual(JSON.parse(readFileSync(join(repo, ".autoreview.json"), "utf8")), {
     checks: ["npm run lint", "npm run build"],
     heavyChecks: ["npm run test"],
-    visual: false,
   });
 
   // The missing label is created, the existing bot added, and the secret stored
@@ -95,7 +94,25 @@ test("existing files are kept, and non-npm projects get no setup or checks", asy
   assert.match(workflow, /runs-on: self-hosted/);
   assert.doesNotMatch(workflow, /npm ci|standing instructions/);
   assert.match(workflow, /fetch-depth: 0\n\n {6}# Deliberate/);
-  assert.deepEqual(await guessConfig(repo), { checks: [], heavyChecks: [], visual: false });
+  assert.deepEqual(await guessConfig(repo), {});
+});
+
+test("a project with nothing to set beyond the defaults gets no config", async () => {
+  const { repo, fetch } = project({});
+  process.env.GITEA_TOKEN = "t";
+  const log: string[] = [];
+  await add({
+    repo,
+    ref: "main",
+    runsOn: "ubuntu-latest",
+    reviewer: "reviewer-bot",
+    fixer: "reviewer-bot",
+    secrets: {},
+    log: (message) => log.push(message),
+    fetch,
+  });
+  assert.ok(!existsSync(join(repo, ".autoreview.json")));
+  assert.ok(log.includes("no .autoreview.json needed: nothing to set beyond the defaults"));
 });
 
 test("a token without the user scope gets advice instead of a crash", async () => {
@@ -172,7 +189,11 @@ test("on GitHub, the workflow uses the workflow's token, and checks are started 
 
   // Pull request checks that can be started by hand are, and the others are named
   const config = JSON.parse(readFileSync(join(repo, ".autoreview.json"), "utf8"));
-  assert.deepEqual(config.dispatch, ["ci.yml"]);
+  assert.deepEqual(config, {
+    checks: ["npm run lint", "npm run build"],
+    heavyChecks: ["npm run test"],
+    dispatch: ["ci.yml"],
+  });
   assert.ok(log.some((line) => line.startsWith("lint.yml won't run on autoreview's fixes")));
 
   // Only the missing labels are created, and no bots or secrets

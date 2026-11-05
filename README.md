@@ -71,7 +71,7 @@ git clone https://github.com/KurtPreston/autoreview.git ~/Code/autoreview
 ~/Code/autoreview/add.sh path/to/repo
 ```
 
-This writes `.github/workflows/autoreview.yml` and `.autoreview.json` (existing files are kept) and creates the `autoreview`, `autofix`, `needs-author` and `author-review` labels, using your `gh` login or `GITHUB_TOKEN`. Review the generated config's `checks`, then commit both files.
+This writes `.github/workflows/autoreview.yml` and creates the `autoreview`, `autofix`, `needs-author` and `author-review` labels, using your `gh` login or `GITHUB_TOKEN`. When it finds checks in the project's npm scripts or workflows to start after a fix, it also writes [`.autoreview.json`](#configuration) with them; otherwise the defaults apply and there's no config to write. Existing files are kept. Review the generated config's `checks`, if any, then commit the new files.
 
 - **Copilot.** The workflow grants `copilot-requests: write`, so the Copilot CLI runs on the workflow's token. In an organization's repository, usage is billed to the organization, which needs the Copilot policy "Allow use of Copilot CLI billed to the organization" and the configured models allowed. In a personal repository it bills the owner's seat. If that account has no Copilot, store a fine-grained token from an account that does, with the **Copilot Requests** permission, as the repository secret `COPILOT_GITHUB_TOKEN`, and the workflow uses it instead.
 - **Checks on fixes.** Pushes made with the workflow's token start no workflows, so the other checks wouldn't see autoreview's fixes. `add.sh` lists the project's pull request workflows that have a `workflow_dispatch` trigger in the config's `dispatch`, and autoreview starts them after pushing. It names the ones without the trigger. Those pushes still create `pull_request` runs awaiting approval; leave them.
@@ -95,7 +95,7 @@ git clone https://github.com/KurtPreston/autoreview.git ~/Code/autoreview
 ~/Code/autoreview/add.sh path/to/repo --setup-action https://github.com/KurtPreston/dotagents@main
 ```
 
-This writes `.gitea/workflows/autoreview.yml` and `.autoreview.json` (existing files are kept), creates the labels, including `autofix`, and gives both bots write access. Gitea adds collaborators without an invitation. It uses your `tea` login, or `GITEA_TOKEN`. Review the generated config's `checks`, then commit both files.
+This writes `.gitea/workflows/autoreview.yml`, creates the labels, including `autofix`, and gives both bots write access. Gitea adds collaborators without an invitation. It uses your `tea` login, or `GITEA_TOKEN`. When it finds checks in the project's npm scripts, it also writes [`.autoreview.json`](#configuration) with them; otherwise there's no config to write. Existing files are kept. Review the generated config's `checks`, if any, then commit the new files.
 
 Without the bot secrets, both roles post with the workflow's built-in token, as one identity. Pushes made with that token don't start workflows; list checks in `dispatch` to start them after a fix (Gitea 1.23 or later).
 
@@ -107,7 +107,7 @@ On Gitea, runs start on pull request events only, not reviews, so the fixer answ
 
 ## Configuration
 
-`.autoreview.json` at the repository root. Every field is optional:
+`.autoreview.json` at the repository root. The file is optional, and so is every field in it; without it, the defaults apply:
 
 | Field                     | Default                                                 | Meaning                                                                                                                                                                                                                                                                                       |
 | ------------------------- | ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
