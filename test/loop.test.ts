@@ -570,6 +570,20 @@ test("a run that fails marks its status, and a status that can't be set doesn't 
   await assert.rejects(failing.run(), /agent crashed/);
   const final = failing.store.statuses?.[failing.store.pr.headSha];
   assert.deepEqual([final?.state, final?.description], ["error", "Failed: agent crashed"]);
+
+  // So does a run that fails before deliberating, as when the diff can't be fetched
+  const early = setup({ review: [{ summary: "Fine.", findings: [] }] });
+  const diff = forge.diff;
+  forge.diff = async () => {
+    throw new Error("502 Bad Gateway");
+  };
+  try {
+    await assert.rejects(early.run(), /502 Bad Gateway/);
+  } finally {
+    forge.diff = diff;
+  }
+  const status = early.store.statuses?.[early.store.pr.headSha];
+  assert.deepEqual([status?.state, status?.description], ["error", "Failed: 502 Bad Gateway"]);
 });
 
 test("a run cancelled after a push marks the pushed commit stopped, and nothing overwrites it", async () => {

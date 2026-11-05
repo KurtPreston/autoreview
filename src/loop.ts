@@ -112,27 +112,27 @@ export async function deliberate(input: Deliberation): Promise<Outcome> {
       skipped: "fixes can't be pushed: the head isn't a branch of this repository",
     };
   }
-  if ((await checkout.head()) !== pr.headSha || (await checkout.dirty())) {
-    throw new Error(`the checkout must be clean at the pull request's head ${pr.headSha}`);
-  }
 
-  // Add convention files found in the folders the pull request changes
-  const conventions = await contextFor({
-    dir: checkout.dir,
-    context: config.context,
-    changed: changedFiles(await input.reviewer.diff(number)),
-  });
+  // Show the run as pending on the head until it ends, however it ends
   const progress = new Progress({
     forge: roles.review ? input.reviewer : input.fixer,
     sha: pr.headSha,
     url: input.link,
     log: input.log,
   });
-  const run: Run = { ...input, roles, conventions, progress };
-
-  // Show the run as pending on the head until it ends, however it ends
   await progress.working(roles.review ? "Reviewing" : "Answering threads");
   try {
+    if ((await checkout.head()) !== pr.headSha || (await checkout.dirty())) {
+      throw new Error(`the checkout must be clean at the pull request's head ${pr.headSha}`);
+    }
+
+    // Add convention files found in the folders the pull request changes
+    const conventions = await contextFor({
+      dir: checkout.dir,
+      context: config.context,
+      changed: changedFiles(await input.reviewer.diff(number)),
+    });
+    const run: Run = { ...input, roles, conventions, progress };
     const result = await Promise.race([deliberateRounds(run, pr, outcome), aborted(input.signal)]);
     await progress.done(describeOutcome(result));
     return result;
