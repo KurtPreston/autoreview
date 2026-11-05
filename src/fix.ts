@@ -29,7 +29,7 @@ export async function fixRound(
     // Ask for an answer, holding any fix to the checks
     const task = render("fix", {
       ...modeText(run.config),
-      common: common(pr, run.config),
+      common: common(pr, run.config, run.conventions),
       path: thread.path,
       line: thread.line,
       checks: checksList(run),

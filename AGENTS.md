@@ -26,3 +26,8 @@ design rules when changing the code.
 npm ci
 npm run typecheck && npm run lint && npm run format:check && npm test
 ```
+
+## Pull requests
+
+Autoreview reviews its own changes. When opening a pull request here, add the `autoreview` and
+`autofix` labels, such as with `gh pr create --label autoreview --label autofix`.

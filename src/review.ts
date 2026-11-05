@@ -59,7 +59,7 @@ export async function recheck(
 
   // Ask for a verdict on each, with the new commits
   const task = render("recheck", {
-    common: common(pr, run.config),
+    common: common(pr, run.config, run.conventions),
     threads: deferred.map((thread) => `### ${thread.key}\n\n${describe(thread)}`).join("\n\n"),
     baseSha: last,
     changes: clip(diff, DIFF_LIMIT, `run git diff ${last}..HEAD for the rest`),
@@ -99,7 +99,7 @@ export async function reviewNew(
   // Ask the reviewer, then discard anything it changed by mistake
   const task = render("review", {
     ...modeText(run.config),
-    common: common(pr, run.config),
+    common: common(pr, run.config, run.conventions),
     baseSha: last ?? pr.baseSha,
     maxFindings: MAX_FINDINGS,
     diff: clip(diff, DIFF_LIMIT, `run git diff ${last ?? pr.baseSha}...HEAD for the rest`),

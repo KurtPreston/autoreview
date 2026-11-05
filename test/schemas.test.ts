@@ -113,6 +113,20 @@ test("prompts fill every slot, and leave braces in filled text alone", () => {
   assert.throws(() => render("common", {}), /needs \{\{deferral\}\}/);
 });
 
+test("only the conventions found in changed folders are scoped to their folders", () => {
+  const pr = { number: 7, title: "t", body: "", author: "kurt", headRef: "h", baseRef: "b" };
+  const config = { ...DEFAULTS, context: ["AGENTS.md", "docs/style.md"] };
+  const plain = common(pr as PullRequest, config);
+  assert.match(plain, /conventions: `AGENTS\.md`, `docs\/style\.md`\. Follow/);
+  assert.doesNotMatch(plain, /under its folder/);
+
+  const text = common(pr as PullRequest, config, ["pkg/AGENTS.md"]);
+  assert.match(
+    text,
+    /conventions: `AGENTS\.md`, `docs\/style\.md`\. Then read these, from the folders the pull request changes: `pkg\/AGENTS\.md`\. Each applies to the code under its folder/,
+  );
+});
+
 test("each deferral mode fills the prompts with its own criteria", () => {
   const pr = { number: 7, title: "t", body: "", author: "kurt", headRef: "h", baseRef: "b" };
   const text = (defer: "best-effort" | "blocking", visual = false) => {

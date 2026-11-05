@@ -20,7 +20,7 @@ export async function verifyRound(run: Run, pr: PullRequest, start: string): Pro
   const changes = start === end ? "" : await run.checkout.diff(start, end);
   const task = render("verify", {
     ...modeText(run.config),
-    common: common(pr, run.config),
+    common: common(pr, run.config, run.conventions),
     threads: waiting
       .map((thread) => `### ${thread.key}\n\n${finalNote(run, thread)}${describe(thread)}`)
       .join("\n\n"),

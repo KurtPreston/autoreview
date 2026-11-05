@@ -1,7 +1,8 @@
 import type { Usage } from "./agent.ts";
 import type { Config } from "./config.ts";
+import { contextFor } from "./context.ts";
 import type { Forge, PullRequest } from "./forge.ts";
-import type { Checkout } from "./git.ts";
+import { changedFiles, type Checkout } from "./git.ts";
 import { fixRound } from "./fix.ts";
 import { newChanges, recheck, reviewNew } from "./review.ts";
 import type { Answer, Review, Verification } from "./schemas.ts";
@@ -53,6 +54,8 @@ export interface Roles {
 /** A deliberation under way, with the roles its labels ask for. */
 export interface Run extends Deliberation {
   roles: Roles;
+  /** Convention files in the folders the pull request changes, beyond the configured context. */
+  conventions: string[];
 }
 
 export interface Outcome {
@@ -105,7 +108,14 @@ export async function deliberate(input: Deliberation): Promise<Outcome> {
   if ((await checkout.head()) !== pr.headSha || (await checkout.dirty())) {
     throw new Error(`the checkout must be clean at the pull request's head ${pr.headSha}`);
   }
-  const run: Run = { ...input, roles };
+
+  // Add convention files found in the folders the pull request changes
+  const conventions = await contextFor({
+    dir: checkout.dir,
+    context: config.context,
+    changed: changedFiles(await input.reviewer.diff(number)),
+  });
+  const run: Run = { ...input, roles, conventions };
 
   // Recheck what the author's new commits settle, and review them
   const changes = roles.review ? await newChanges(run, pr) : undefined;

@@ -1,7 +1,7 @@
 import "./scratch.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { compose, readMarker } from "../src/markers.ts";
@@ -462,4 +462,58 @@ test("with only autofix, the fixer answers open threads, unverified, and reviews
   assert.equal(fixOnly.reviews.length, 1);
   assert.match(fixOnly.reviews[0], /\+export function grow[\s\S]*Math\.min/);
   assert.equal(later.resolved, 1);
+});
+
+test("agents are pointed at the convention files in the folders the pull request changes", async () => {
+  const nested = setup({});
+  const { store, work } = nested;
+
+  // main gains conventions for two folders, and the branch changes code in only one of them
+  git(work, "checkout", "--quiet", "main");
+  for (const folder of ["pkg", "other"]) {
+    mkdirSync(join(work, folder));
+    writeFileSync(join(work, folder, "AGENTS.md"), `Rules for ${folder}.\n`);
+  }
+  git(work, "add", "-A");
+  git(work, "commit", "--quiet", "-m", "Add conventions");
+  git(work, "checkout", "--quiet", "ferns");
+  git(work, "merge", "--quiet", "main");
+  writeFileSync(join(work, "pkg", "b.ts"), "export const b = 1;\n");
+  git(work, "add", "-A");
+  git(work, "commit", "--quiet", "-m", "Add b");
+  git(work, "checkout", "--quiet", "--detach");
+  store.pr.headSha = git(work, "rev-parse", "HEAD");
+  store.diff = git(work, "diff", "main...HEAD");
+
+  // The review's task lists the changed folder's file, and not the other one
+  await nested.run();
+  assert.match(
+    nested.reviews[0],
+    /conventions: `AGENTS\.md`\. Then read[^.]*: `pkg\/AGENTS\.md`\./,
+  );
+  assert.doesNotMatch(nested.reviews[0], /other\/AGENTS\.md/);
+});
+
+test("a file moved unchanged into a folder points agents at that folder's conventions", async () => {
+  const moved = setup({});
+  const { store, work } = moved;
+
+  // main gains conventions for a folder, and the branch only moves a file into it
+  git(work, "checkout", "--quiet", "main");
+  mkdirSync(join(work, "pkg"));
+  writeFileSync(join(work, "pkg", "AGENTS.md"), "Rules for pkg.\n");
+  git(work, "add", "-A");
+  git(work, "commit", "--quiet", "-m", "Add conventions");
+  git(work, "checkout", "--quiet", "ferns");
+  git(work, "merge", "--quiet", "main");
+  git(work, "mv", "README.md", "pkg/README.md");
+  git(work, "commit", "--quiet", "-m", "Move the readme");
+  git(work, "checkout", "--quiet", "--detach");
+  store.pr.headSha = git(work, "rev-parse", "HEAD");
+  store.diff = git(work, "diff", "main...HEAD");
+  assert.match(store.diff, /^rename to pkg\/README\.md$/m);
+  assert.doesNotMatch(store.diff, /^\+\+\+ b\/pkg\/README\.md$/m);
+
+  await moved.run();
+  assert.match(moved.reviews[0], /conventions: `AGENTS\.md`\. Then read[^.]*: `pkg\/AGENTS\.md`\./);
 });
