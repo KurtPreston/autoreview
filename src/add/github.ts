@@ -148,14 +148,11 @@ export function workflowEvents(text: string): string[] {
 /** Where the flow collection `text` opens with closes, or -1 if it doesn't yet. */
 function flowEnd(text: string): number {
   let depth = 0;
-  let quote = "";
-  for (let i = 0; i < text.length; i++) {
-    const char = text[i];
-    if (quote) {
-      quote = char === quote ? "" : quote;
-    } else if (char === '"' || char === "'") {
-      quote = char;
-    } else if (char === "[" || char === "{") {
+  for (const [i, char, quoted] of flowChars(text)) {
+    if (quoted) {
+      continue;
+    }
+    if (char === "[" || char === "{") {
       depth++;
     } else if ((char === "]" || char === "}") && --depth === 0) {
       return i;
@@ -168,23 +165,51 @@ function flowEnd(text: string): number {
 function splitFlow(text: string, separator: string): string[] {
   const parts = [""];
   let depth = 0;
-  let quote = "";
-  for (const char of text) {
-    if (quote) {
-      quote = char === quote ? "" : quote;
-    } else if (char === '"' || char === "'") {
-      quote = char;
-    } else if (char === "[" || char === "{") {
-      depth++;
-    } else if (char === "]" || char === "}") {
-      depth--;
-    } else if (char === separator && depth === 0) {
-      parts.push("");
-      continue;
+  for (const [, char, quoted] of flowChars(text)) {
+    if (!quoted) {
+      if (char === "[" || char === "{") {
+        depth++;
+      } else if (char === "]" || char === "}") {
+        depth--;
+      } else if (char === separator && depth === 0) {
+        parts.push("");
+        continue;
+      }
     }
     parts[parts.length - 1] += char;
   }
   return parts;
+}
+
+/**
+ * Each character of flow `text`, with its index and whether it's part of a quoted scalar.
+ * A quote opens a scalar only where one starts (after `[`, `{`, `,`, `:` or `?`), so an
+ * apostrophe in a plain scalar is just a character. `\"` and `''` don't close one.
+ */
+function* flowChars(text: string): Generator<[number, string, boolean]> {
+  let quote = "";
+  let boundary = true;
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    if (quote) {
+      yield [i, char, true];
+      const escaped = quote === '"' ? char === "\\" : char === "'" && text[i + 1] === "'";
+      if (escaped && i + 1 < text.length) {
+        yield [++i, text[i], true];
+      } else if (char === quote) {
+        quote = "";
+      }
+    } else if ((char === '"' || char === "'") && boundary) {
+      quote = char;
+      boundary = false;
+      yield [i, char, true];
+    } else {
+      if (!/\s/.test(char)) {
+        boundary = /[[{,:?]/.test(char);
+      }
+      yield [i, char, false];
+    }
+  }
 }
 
 function unquote(name: string): string {
