@@ -23,9 +23,12 @@ interface Write {
 
 /**
  * A repository whose pull request #7 has the fixer's label and a person's open thread on
- * a.ts, served by a stub Gitea that records every write.
+ * a.ts, served by a stub Gitea that records every write. `pr` overrides its fields.
  */
-async function pullRequest(config: object): Promise<{
+async function pullRequest(
+  config: object,
+  pr: object = {},
+): Promise<{
   url: string;
   origin: string;
   work: string;
@@ -51,6 +54,7 @@ async function pullRequest(config: object): Promise<{
       labels: [{ name: "autofix" }],
       head: { ref: "ferns", sha: head, label: "ferns", repo_id: 1 },
       base: { ref: "main", sha: git(work, "rev-parse", "main"), repo_id: 1 },
+      ...pr,
     },
     "/repos/o/r/pulls/7.diff": git(work, "diff", "main..ferns"),
     "/repos/o/r/pulls/7/reviews": [{ id: 1, state: "COMMENT" }],
@@ -232,7 +236,7 @@ test("a CLI run cancelled during a check stops the check's own child processes",
   assert.equal(branch(origin), head);
 });
 
-test("a trusted CLI run takes its config from the base and opens its posts with the notice", async () => {
+test("a trusted CLI run takes its config from the base and posts the notice once", async () => {
   // The pull request's own config fails every check, which only the base's absence of one avoids
   const { url, origin, work, writes } = await pullRequest({ checks: ["false"] });
   const head = branch(origin);
@@ -248,8 +252,32 @@ test("a trusted CLI run takes its config from the base and opens its posts with 
   run.child.kill("SIGTERM");
   await within(run.exited, 6000, "stopping");
 
-  // The fix passed the base's checks and was pushed, and every post opens with the notice
-  for (const post of posts()) {
-    assert.ok(post.body?.body?.startsWith("🤖 Pilot.\n\n"), `${post.path}: ${post.body?.body}`);
-  }
+  // The fix passed the base's checks and was pushed, and the notice was posted once
+  const notices = posts().filter((post) => post.body?.body?.startsWith("Pilot."));
+  assert.equal(notices.length, 1, run.log());
+  assert.equal(notices[0].path, "/repos/o/r/issues/7/comments");
+});
+
+for (const [what, pr] of [
+  ["a draft", { draft: true }],
+  ["a closed", { state: "closed" }],
+] as const) {
+  test(`a CLI run skipping ${what} pull request posts no notice`, async () => {
+    const { url, work, writes } = await pullRequest({}, pr);
+    const run = start(url, work, { steps: [], flags: ["--notice", "Pilot."] });
+    assert.equal(await within(run.exited, 20_000, "the run"), 0, run.log());
+    assert.match(run.log(), /"skipped"/);
+    assert.deepEqual(writes, [], run.log());
+  });
+}
+
+test("a forced CLI run on a draft pull request posts the notice", async () => {
+  const { url, work, writes } = await pullRequest({}, { draft: true });
+  const run = start(url, work, { steps: [fixed], flags: ["--force", "--notice", "Pilot."] });
+  const notices = () => writes.filter((write) => write.body?.body?.startsWith("Pilot."));
+  await until(() => notices().length > 0, { what: "the notice", log: run.log });
+  run.child.kill("SIGTERM");
+  await within(run.exited, 6000, "stopping");
+  assert.equal(notices().length, 1, run.log());
+  assert.equal(notices()[0].path, "/repos/o/r/issues/7/comments");
 });
