@@ -18,17 +18,21 @@ export interface FolderSet extends FolderConfig {
  * Folder files read from the commit a run started at, so a fix can't change the checks it's
  * held to. A folder that took another's file word for word, that folder having lost it, was
  * moved there, and answers to that file for the rest of the run, whatever later fixes do to its
- * copy. Each file is read once.
+ * copy. Each file is read once. When that commit is the base rather than the head, a folder
+ * only the base added since the branch forked was never the branch's to lose.
  */
 export class FolderConfigs {
   readonly #checkout: Checkout;
   readonly #sha: string;
+  readonly #head: string;
   readonly #parsed = new Map<string, Promise<FolderSet>>();
   readonly #trees = new Map<string, Promise<Map<string, string>>>();
+  #branch?: Promise<Set<string>>;
 
-  constructor(checkout: Checkout, sha: string) {
+  constructor(checkout: Checkout, sha: string, head: string = sha) {
     this.#checkout = checkout;
     this.#sha = sha;
+    this.#head = head;
   }
 
   /** The files that apply to some paths: in their folders and those above, shallowest first. */
@@ -70,11 +74,37 @@ export class FolderConfigs {
       return [];
     }
     const taken = new Set((await this.#moves()).values());
+    const branch = await this.#branchFolders();
     return this.#configs(
       (await this.#folders()).filter(
-        (folder) => !taken.has(folder) && !existsSync(join(this.#checkout.dir, folder)),
+        (folder) =>
+          branch.has(folder) && !taken.has(folder) && !existsSync(join(this.#checkout.dir, folder)),
       ),
     );
+  }
+
+  /**
+   * The starting commit's folders that the branch had at its head or where it forked from that
+   * commit, with or without a file of their own there. The rest were added by the base alone, so
+   * the branch can't have lost them.
+   */
+  async #branchFolders(): Promise<Set<string>> {
+    this.#branch ??= (async () => {
+      const starting = await this.#tree(this.#sha);
+      if (this.#head === this.#sha) {
+        return new Set(starting.keys());
+      }
+      const fork = (await this.#checkout.git("merge-base", this.#sha, this.#head)).trim();
+      const had = [await this.#directories(this.#head), await this.#directories(fork)];
+      return new Set([...starting.keys()].filter((folder) => had.some((dirs) => dirs.has(folder))));
+    })();
+    return this.#branch;
+  }
+
+  /** Every folder in a commit, whether or not it has a file. */
+  async #directories(commit: string): Promise<Set<string>> {
+    const listing = await this.#checkout.git("ls-tree", "-r", "-d", "-z", "--name-only", commit);
+    return new Set(listing.split("\0").filter(Boolean));
   }
 
   /** The folders with a file in the starting commit, shallowest first. */
@@ -98,10 +128,11 @@ export class FolderConfigs {
       .split("\n")
       .filter(Boolean);
     const states = [...commits.map((commit) => this.#tree(commit)), this.#workingTree()];
+    const branch = await this.#branchFolders();
     const moves = new Map<string, string>();
     for (const state of states) {
       const present = await state;
-      const lost = [...starting.keys()].filter((folder) => !present.has(folder));
+      const lost = [...branch].filter((folder) => !present.has(folder));
       for (const [folder, blob] of present) {
         if (starting.has(folder) || moves.has(folder)) {
           continue;

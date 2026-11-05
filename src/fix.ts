@@ -5,7 +5,7 @@ import { CONFIG_FILE, type FolderConfig } from "./config.ts";
 import type { PullRequest, Thread } from "./forge.ts";
 import type { Outcome, Run } from "./loop.ts";
 import { compose, type Marker } from "./markers.ts";
-import { common, modeText, render } from "./prompts.ts";
+import { common, guidanceFor, modeText, render } from "./prompts.ts";
 import type { Answer } from "./schemas.ts";
 import { latestPerson, status } from "./status.ts";
 import { decisionText, describe, exchanges, notice, ruled } from "./threads.ts";
@@ -35,7 +35,7 @@ export async function fixRound(
     const sets = await checkSets(run, [thread.path]);
     const task = render("fix", {
       ...modeText(run.config),
-      common: common(pr, run.config, run.conventions),
+      common: common(pr, run.config, guidanceFor(run, "fixer")),
       path: thread.path,
       line: thread.line,
       checks: checksList(runnable(run, sets)),

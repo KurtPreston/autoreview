@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { DEFAULTS } from "../src/config.ts";
 import type { PullRequest } from "../src/forge.ts";
 import { compose, plainText, readMarker } from "../src/markers.ts";
-import { clip, common, modeText, render } from "../src/prompts.ts";
+import { clip, common, guidanceFor, modeText, render } from "../src/prompts.ts";
 import {
   extractJson,
   SchemaError,
@@ -126,14 +126,42 @@ test("only the conventions found in changed folders are scoped to their folders"
   assert.doesNotMatch(plain, /folder named with it/);
 
   // A folder config's context is for its folder's code, not the code beside the file
-  const text = common(pr as PullRequest, config, [
-    { path: "pkg/AGENTS.md", folder: "pkg" },
-    { path: "packages/api/docs/api.md", folder: "packages/api" },
-  ]);
+  const text = common(pr as PullRequest, config, {
+    conventions: [
+      { path: "pkg/AGENTS.md", folder: "pkg" },
+      { path: "packages/api/docs/api.md", folder: "packages/api" },
+    ],
+  });
   assert.match(
     text,
     /conventions: `AGENTS\.md`, `docs\/style\.md`\. Then read these, from the folders the pull request changes, each for the code under the folder named with it[^:]*: `pkg\/AGENTS\.md` for `pkg\/`, `packages\/api\/docs\/api\.md` for `packages\/api\/`\./,
   );
+});
+
+test("instruction files are listed with their patterns, without those excluded from the role", () => {
+  const pr = { number: 7, title: "t", body: "", author: "kurt", headRef: "h", baseRef: "b" };
+  const run = {
+    conventions: [],
+    instructions: [
+      { path: ".github/instructions/ts.instructions.md", applyTo: "**/*.ts,**/*.tsx" },
+      {
+        path: ".github/instructions/review.instructions.md",
+        applyTo: "**",
+        excludes: "fixer" as const,
+      },
+    ],
+  };
+  assert.doesNotMatch(common(pr as PullRequest, DEFAULTS), /instruction files/);
+
+  // The reviewer reads both, the fixer only the one not kept from it
+  const reviewer = common(pr as PullRequest, DEFAULTS, guidanceFor(run, "reviewer"));
+  assert.match(
+    reviewer,
+    /`AGENTS\.md`\. Then read these instruction files, each for the files its `applyTo` pattern matches: `\.github\/instructions\/ts\.instructions\.md` for `\*\*\/\*\.ts,\*\*\/\*\.tsx`, `\.github\/instructions\/review\.instructions\.md` for `\*\*`\. Follow/,
+  );
+  const fixer = common(pr as PullRequest, DEFAULTS, guidanceFor(run, "fixer"));
+  assert.match(fixer, /ts\.instructions\.md/);
+  assert.doesNotMatch(fixer, /review\.instructions\.md/);
 });
 
 test("each deferral mode fills the prompts with its own criteria", () => {

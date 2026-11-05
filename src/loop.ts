@@ -4,6 +4,7 @@ import type { Config } from "./config.ts";
 import { contextFor, type Convention } from "./context.ts";
 import type { Forge, PullRequest } from "./forge.ts";
 import { changedFiles, type Checkout } from "./git.ts";
+import { instructionsFor, type Instruction } from "./instructions.ts";
 import { fixRound } from "./fix.ts";
 import { folderContext, FolderConfigs } from "./folders.ts";
 import { postNotice } from "./notice.ts";
@@ -79,6 +80,8 @@ export interface Run extends Deliberation {
    * found by name, or listed in a folder's config, each with the folder whose code it's for.
    */
   conventions: Convention[];
+  /** `.github/instructions` files whose `applyTo` matches a file the pull request changes. */
+  instructions: Instruction[];
   /** Folders' own configs, read from `configSha`, or the head the run started at. */
   folders: FolderConfigs;
   /** The run's commit status, on the pull request's latest commit. */
@@ -171,7 +174,7 @@ export async function deliberate(input: Deliberation): Promise<Outcome> {
 
 /** Check the checkout and gather conventions, then deliberate in rounds. */
 async function deliberateFrom(
-  setUp: Omit<Run, "conventions" | "folders">,
+  setUp: Omit<Run, "conventions" | "instructions" | "folders">,
   pr: PullRequest,
   outcome: Outcome,
 ): Promise<Outcome> {
@@ -181,16 +184,18 @@ async function deliberateFrom(
     throw new Error(`the checkout must be clean at the pull request's head ${pr.headSha}`);
   }
 
-  // Add convention files found in, or listed by, the folders the pull request changes
+  // Add convention files found in, or listed by, the folders the pull request changes, and the
+  // instruction files whose patterns match its files
   const changed = changedFiles(await setUp.reviewer.diff(number));
-  const folders = new FolderConfigs(checkout, setUp.configSha ?? pr.headSha);
+  const folders = new FolderConfigs(checkout, setUp.configSha ?? pr.headSha, pr.headSha);
   const found = await contextFor({ dir: checkout.dir, context: config.context, changed });
   const conventions = folderContext(
     await folders.for(changed),
     config.context,
     found.map((path) => ({ path, folder: posix.dirname(path) })),
   );
-  return deliberateRounds({ ...setUp, conventions, folders }, pr, outcome);
+  const instructions = await instructionsFor({ dir: checkout.dir, changed });
+  return deliberateRounds({ ...setUp, conventions, instructions, folders }, pr, outcome);
 }
 
 /** Rejects with the signal's reason once it's aborted; never settles without a signal. */

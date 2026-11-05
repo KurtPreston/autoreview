@@ -148,6 +148,10 @@ Here, a fix to `packages/api/src/routes.ts` must pass `npm run lint` at the root
 
 The workflow template runs `npm ci` only at the root, so a folder whose checks need its own dependencies installs them itself, as above.
 
+### Instruction files
+
+Path-specific Copilot instructions, the `*.instructions.md` files under `.github/instructions`, are read too, with no configuration. Each one whose `applyTo` globs (comma-separated, relative to the root) match a file the pull request changes is listed for the agents, with its pattern, so they apply it to the files it covers. A file without `applyTo` applies to nothing. `excludeAgent: "code-review"` keeps a file from the reviewer, and `"cloud-agent"` keeps it from the fixer. The files are read from the pull request's head when a run starts.
+
 ## Standing instructions
 
 Autoreview runs the deliberation. It doesn't decide what conventions the agents follow. The agents read whatever Copilot CLI instructions and settings `COPILOT_HOME` holds (by default `~/.copilot`). To give them yours, install them in a workflow step before the autoreview step that exports `COPILOT_HOME`. For [dotagents](https://github.com/KurtPreston/dotagents), which also turns off attribution trailers:
@@ -190,7 +194,7 @@ Agents still run with every tool allowed and read the repository's instructions 
 
 ## Development
 
-The tool is TypeScript run directly by Node's type stripping (Node 22.18 or later), with no build step and no runtime dependencies. Avoid syntax that stripping rejects: enums, namespaces, and constructor parameter properties.
+The tool is TypeScript run directly by Node's type stripping (Node 22.20 or later), with no build step and no runtime dependencies. Avoid syntax that stripping rejects: enums, namespaces, and constructor parameter properties.
 
 ```sh
 npm ci

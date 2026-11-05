@@ -3,7 +3,7 @@ import type { NewComment, PullRequest } from "./forge.ts";
 import { changedFiles, diffLines } from "./git.ts";
 import type { Run } from "./loop.ts";
 import { compose, readMarker, type Marker } from "./markers.ts";
-import { clip, common, modeText, render } from "./prompts.ts";
+import { clip, common, guidanceFor, modeText, render } from "./prompts.ts";
 import type { Finding } from "./schemas.ts";
 import { opener } from "./status.ts";
 import { describe, DIFF_LIMIT, forAuthor, tidy } from "./threads.ts";
@@ -59,7 +59,7 @@ export async function recheck(
 
   // Ask for a verdict on each, with the new commits
   const task = render("recheck", {
-    common: common(pr, run.config, run.conventions),
+    common: common(pr, run.config, guidanceFor(run, "reviewer")),
     threads: deferred.map((thread) => `### ${thread.key}\n\n${describe(thread)}`).join("\n\n"),
     baseSha: last,
     changes: clip(diff, DIFF_LIMIT, `run git diff ${last}..HEAD for the rest`),
@@ -99,7 +99,7 @@ export async function reviewNew(
   // Ask the reviewer, then discard anything it changed by mistake
   const task = render("review", {
     ...modeText(run.config),
-    common: common(pr, run.config, run.conventions),
+    common: common(pr, run.config, guidanceFor(run, "reviewer")),
     baseSha: last ?? pr.baseSha,
     maxFindings: MAX_FINDINGS,
     diff: clip(diff, DIFF_LIMIT, `run git diff ${last ?? pr.baseSha}...HEAD for the rest`),
