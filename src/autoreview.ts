@@ -12,7 +12,7 @@ import { forges } from "./forges.ts";
 import { copilotAgents, deliberate } from "./loop.ts";
 import { MemoryForge, snapshot } from "./memory.ts";
 import { parseRemote, type Remote } from "./remote.ts";
-import { dispatchAfterPush, ownPush } from "./trigger.ts";
+import { ownPush } from "./trigger.ts";
 
 const USAGE = `usage:
   autoreview run --pr <n> [--repo <dir>] [--checkout <dir>] [--dry-run] [--heavy] [--force]
@@ -104,16 +104,6 @@ async function main(): Promise<void> {
       log: (message) => console.error(`autoreview: ${message}`),
     });
     console.error(`autoreview: ${JSON.stringify(outcome)}`);
-
-    // Pushes with a workflow's own token start no checks, so start the configured ones
-    if (!dryRun && outcome.commits.length > 0) {
-      await dispatchAfterPush({
-        forge: roles.implementer,
-        workflows: config.dispatch,
-        branch: head.headBranch,
-        log: (message) => console.error(`autoreview: ${message}`),
-      });
-    }
   } finally {
     await cleanup();
   }

@@ -6,6 +6,7 @@ import { compose, plainText, readMarker, type Marker } from "./markers.ts";
 import { clip, common, modeText, render } from "./prompts.ts";
 import { status } from "./status.ts";
 import { summarise } from "./summary.ts";
+import { dispatchAfterPush } from "./trigger.ts";
 import {
   SchemaError,
   validateAnswer,
@@ -369,6 +370,15 @@ async function implementRound(
     if (!(await run.checkout.push(pr.headBranch ?? pr.headRef))) {
       return `${pr.headRef} moved during the run; a newer run will continue`;
     }
+
+    // Pushes with a workflow's own token start no checks, so start the configured ones now,
+    // before anything later in the run can fail and leave the fixes unchecked
+    await dispatchAfterPush({
+      forge: run.implementer,
+      workflows: run.config.dispatch,
+      branch: pr.headBranch,
+      log: run.log,
+    });
   }
   for (const reply of replies) {
     await answerThread(run, reply);

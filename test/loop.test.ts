@@ -56,6 +56,8 @@ interface Setup {
   calls: { review: number; implement: number; verify: number };
   /** Each review's task, as the reviewer saw it. */
   reviews: string[];
+  /** Each workflow the implementer started, as `workflow@ref`. */
+  dispatched: string[];
   run: () => Promise<Outcome>;
 }
 
@@ -106,6 +108,14 @@ function setup(
     },
   };
 
+  // The implementer records the workflows it starts
+  const dispatched: string[] = [];
+  const implementer = Object.assign(new MemoryForge(store, "implementer-bot"), {
+    dispatch: async (workflow: string, ref: string) => {
+      dispatched.push(`${workflow}@${ref}`);
+    },
+  });
+
   const config: Config = parseConfig({ checks: ["true"], ...options.config });
   const run = () =>
     deliberate({
@@ -113,7 +123,7 @@ function setup(
       config,
       checkout: new Checkout(work),
       reviewer: new MemoryForge(store, "reviewer-bot"),
-      implementer: new MemoryForge(store, "implementer-bot"),
+      implementer,
       agents,
       usage: {},
       push: true,
@@ -121,7 +131,7 @@ function setup(
       force: false,
       log: () => {},
     });
-  return { store, work, origin, calls, reviews, run };
+  return { store, work, origin, calls, reviews, dispatched, run };
 }
 
 const finding = {
@@ -360,6 +370,24 @@ test("the run stops without replying when the branch moved", async () => {
   assert.match(outcome.stopped ?? "", /ferns moved/);
   assert.equal(store.threads[0].comments.length, 1);
   assert.equal(git(origin, "log", "-1", "--format=%s", "ferns"), "Theirs");
+});
+
+test("pushed fixes start the dispatch workflows, even when the run then fails", async () => {
+  const { work, origin, dispatched, run } = setup(
+    {
+      review: [{ summary: "One problem.", findings: [finding] }],
+      implement: [fix("Math.min(n * 2, MAX)")],
+      verify: [
+        () => {
+          throw new Error("the reviewer timed out");
+        },
+      ],
+    },
+    { config: { dispatch: ["checks.yml"] } },
+  );
+  await assert.rejects(run(), /timed out/);
+  assert.equal(git(origin, "rev-parse", "ferns"), git(work, "rev-parse", "HEAD"));
+  assert.deepEqual(dispatched, ["checks.yml@ferns"]);
 });
 
 test("pull requests without the label, or drafts, are skipped", async () => {
