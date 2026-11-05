@@ -232,7 +232,7 @@ test("a CLI run cancelled during a check stops the check's own child processes",
   assert.equal(branch(origin), head);
 });
 
-test("a trusted CLI run takes its config from the base and opens its posts with the notice", async () => {
+test("a trusted CLI run takes its config from the base and posts the notice once", async () => {
   // The pull request's own config fails every check, which only the base's absence of one avoids
   const { url, origin, work, writes } = await pullRequest({ checks: ["false"] });
   const head = branch(origin);
@@ -248,8 +248,8 @@ test("a trusted CLI run takes its config from the base and opens its posts with 
   run.child.kill("SIGTERM");
   await within(run.exited, 6000, "stopping");
 
-  // The fix passed the base's checks and was pushed, and every post opens with the notice
-  for (const post of posts()) {
-    assert.ok(post.body?.body?.startsWith("🤖 Pilot.\n\n"), `${post.path}: ${post.body?.body}`);
-  }
+  // The fix passed the base's checks and was pushed, and the notice was posted once
+  const notices = posts().filter((post) => post.body?.body?.startsWith("Pilot."));
+  assert.equal(notices.length, 1, run.log());
+  assert.equal(notices[0].path, "/repos/o/r/issues/7/comments");
 });

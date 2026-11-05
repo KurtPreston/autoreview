@@ -11,7 +11,7 @@ import { Checkout } from "./git.ts";
 import { forgeKind, forges } from "./forges.ts";
 import { copilotAgents, deliberate } from "./loop.ts";
 import { followCheckout, MemoryForge, snapshot, type Store } from "./memory.ts";
-import { withNotice } from "./notice.ts";
+import { postNotice } from "./notice.ts";
 import { parseRemote, type Remote } from "./remote.ts";
 import { dispatchAfterPush, ownPush } from "./trigger.ts";
 
@@ -29,7 +29,7 @@ const USAGE = `usage:
               read .autoreview.json files from the pull request's base, not its head, so
               the pull request can't change the commands run on its behalf
   --config    use this file as the root config, instead of the repository's
-  --notice    open every comment with this text, such as who runs autoreview and why
+  --notice    post this text once on the pull request, such as who runs autoreview and why
 
 Tokens: AUTOREVIEW_REVIEWER_TOKEN and AUTOREVIEW_FIXER_TOKEN post as two
 identities. Otherwise one identity posts as both: on GitHub, GITHUB_TOKEN, GH_TOKEN
@@ -115,12 +115,10 @@ async function main(): Promise<void> {
         ? await loadConfigAt(checkout, head.baseSha)
         : await loadConfig(checkout.dir);
 
-    // An operator's notice opens everything either role posts
-    if (values.notice) {
-      roles = {
-        reviewer: withNotice(roles.reviewer, values.notice),
-        fixer: withNotice(roles.fixer, values.notice),
-      };
+    // An operator's notice is posted once, on pull requests autoreview will act on
+    const optedIn = [config.reviewLabel, config.fixLabel].some((l) => head.labels.includes(l));
+    if (values.notice && (optedIn || values.force)) {
+      await postNotice(roles.reviewer, pr, values.notice);
     }
     const usage = {};
     const log = (message: string) => console.error(`autoreview: ${message}`);

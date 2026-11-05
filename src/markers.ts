@@ -10,7 +10,7 @@ export type Role = "reviewer" | "fixer";
 export interface Marker {
   role: Role;
   /** What the comment is. */
-  kind: "finding" | "answer" | "verdict" | "review" | "summary" | "notes";
+  kind: "finding" | "answer" | "verdict" | "review" | "summary" | "notes" | "notice";
   /** A finding's severity, an answer's action, or a verdict. */
   value?: string;
   /** Set when this comment hands the thread to the author. */
@@ -43,10 +43,10 @@ export function readMarker(body: string): Marker | undefined {
   }
 }
 
-/** A comment's text without its header line, any notice above it, and marker, for agents to read. */
+/** A comment's text without its header line and marker, for agents to read. */
 export function plainText(body: string): string {
   return body
     .replace(PATTERN, "")
-    .replace(/^(🤖 [^\n]*\n+)+/, "")
+    .replace(/^🤖 [^\n]*\n+/, "")
     .trim();
 }

@@ -184,7 +184,7 @@ When you run autoreview on pull requests you didn't write, such as from a schedu
 
 - `--trusted-config` reads `.autoreview.json` and every folder's file from the pull request's base rather than its head, so a pull request can't add checks to run or loosen the ones its fixes answer to. A folder it moves keeps its checks where it went only when its file moves with it unchanged; otherwise, while the folder is gone, every fix fails the folder's checks, and is deferred.
 - `--config <file>` uses your own file as the root config instead of the repository's. Folder files still come from the repository, so pass `--trusted-config` too.
-- `--notice <text>` opens every review, comment and reply with your text, on one line starting with 🤖, such as who runs autoreview and why. Use it when autoreview posts as you, so readers don't take its comments for your own review.
+- `--notice <text>` posts your text once on each pull request autoreview acts on, such as who runs autoreview and why. Use it when autoreview posts as you, so readers don't take its comments for your own review. A later run, even with a different notice, doesn't post another.
 
 Agents still run with every tool allowed and read the repository's instructions from the head, so run it only where that's acceptable, such as a sandboxed machine.
 

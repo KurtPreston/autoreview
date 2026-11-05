@@ -1,9 +1,8 @@
 import "./scratch.ts";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { compose, plainText, readMarker } from "../src/markers.ts";
 import { MemoryForge, type Store } from "../src/memory.ts";
-import { withNotice } from "../src/notice.ts";
+import { postNotice } from "../src/notice.ts";
 
 const NOTICE = "🤖 Run by an operator's pilot.";
 
@@ -32,46 +31,13 @@ function store(writes: string[]): Store {
   };
 }
 
-test("a notice opens every review, inline comment, reply and comment, and markers still parse", async () => {
+test("a notice is posted once per pull request, even when its text changes", async () => {
   const writes: string[] = [];
   const memory = store(writes);
-  const forge = withNotice(new MemoryForge(memory, "kurt"), NOTICE);
-  const body = compose("x", "Name it.", { role: "reviewer", kind: "finding" });
-
-  // Each kind of write carries the notice first
-  await forge.review(7, {
-    body: "Summary.",
-    commit: "abc1234",
-    comments: [{ path: "a.ts", line: 2, body }],
-  });
-  const [thread] = await forge.threads(7);
-  await forge.reply(7, thread, "Fixed.");
-  await forge.comment(7, "Done.");
-  const posted = [...memory.threads[0].comments, ...memory.comments];
-  assert.equal(posted.length, 3);
-  for (const comment of posted) {
-    assert.ok(comment.body.startsWith(`${NOTICE}\n\n`), comment.body);
-  }
-  assert.match(writes[0], new RegExp(`\\n${NOTICE}\\n\\nSummary\\.$`));
-  assert.equal(readMarker(posted[0].body)?.kind, "finding");
-  assert.equal(plainText(posted[0].body), "Name it.");
-
-  // Reads pass through to the forge, private fields and all
-  assert.equal(await forge.login(), "kurt");
-  assert.equal((await forge.pullRequest(7)).number, 7);
-});
-
-test("a notice is put on one line opening with 🤖, so a comment's text still skips it", async () => {
-  const memory = store([]);
-  const forge = withNotice(
-    new MemoryForge(memory, "kurt"),
-    "Run by a pilot.\nRemove the label to stop.",
-  );
-  await forge.comment(7, compose("x", "Done.", { role: "fixer", kind: "notes" }));
-  const [comment] = memory.comments;
-  assert.ok(
-    comment.body.startsWith("🤖 Run by a pilot. Remove the label to stop.\n\n🤖 x"),
-    comment.body,
-  );
-  assert.equal(plainText(comment.body), "Done.");
+  const forge = new MemoryForge(memory, "kurt");
+  assert.equal(await postNotice(forge, 7, NOTICE), true);
+  assert.equal(await postNotice(forge, 7, NOTICE), false);
+  assert.equal(await postNotice(forge, 7, "🤖 A reworded notice."), false);
+  assert.equal(memory.comments.length, 1);
+  assert.ok(memory.comments[0].body.startsWith(`${NOTICE}\n\n<!-- autoreview `));
 });
