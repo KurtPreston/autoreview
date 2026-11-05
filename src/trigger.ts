@@ -3,14 +3,22 @@ import type { Checkout } from "./git.ts";
 
 /**
  * Whether a push of autoreview's own commit started this run. Only pushes count: a label
- * or ready-for-review event on the same head still deliberates.
+ * or ready-for-review event on the same head still deliberates. The commit checked is the
+ * one the event pushed, not the current head, so rerunning a person's push that autoreview
+ * has since pushed fixes onto still deliberates. A pushed commit that's gone isn't ours.
  */
 export async function ownPush(
   checkout: Checkout,
   head: string,
-  event = process.env.AUTOREVIEW_EVENT,
+  event: { action?: string; sha?: string } = {
+    action: process.env.AUTOREVIEW_EVENT,
+    sha: process.env.AUTOREVIEW_EVENT_SHA,
+  },
 ): Promise<boolean> {
-  return event === "synchronize" && (await checkout.isOwn(head));
+  if (event.action !== "synchronize") {
+    return false;
+  }
+  return checkout.isOwn(event.sha || head).catch(() => false);
 }
 
 /**

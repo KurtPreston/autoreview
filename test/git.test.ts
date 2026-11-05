@@ -74,8 +74,13 @@ test("autoreview's commits carry its trailer, and only its pushes skip a run", a
   assert.equal(await checkout.git("log", "-1", "--format=%s"), "branch: Fix it\n");
 
   // Only a push of autoreview's own commit is skipped
-  assert.equal(await ownPush(checkout, own, "synchronize"), true);
-  assert.equal(await ownPush(checkout, own, "labeled"), false);
-  assert.equal(await ownPush(checkout, own, undefined), false);
-  assert.equal(await ownPush(checkout, person, "synchronize"), false);
+  assert.equal(await ownPush(checkout, own, { action: "synchronize" }), true);
+  assert.equal(await ownPush(checkout, own, { action: "labeled" }), false);
+  assert.equal(await ownPush(checkout, own, {}), false);
+  assert.equal(await ownPush(checkout, person, { action: "synchronize" }), false);
+
+  // Rerunning a person's push after autoreview pushed a fix onto it still deliberates
+  assert.equal(await ownPush(checkout, own, { action: "synchronize", sha: person }), false);
+  const gone = "0".repeat(40);
+  assert.equal(await ownPush(checkout, own, { action: "synchronize", sha: gone }), false);
 });

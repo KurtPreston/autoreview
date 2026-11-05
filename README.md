@@ -29,6 +29,8 @@ Rules that keep a deliberation from running away:
 - A run with nothing new to review and no open threads posts nothing.
 - A run started by a push of autoreview's own commit does nothing. Fix commits carry an
   `Autoreview: implementer` trailer, so this works even when one identity does everything.
+  The commit the event pushed is checked, not the current head, so rerunning a person's push
+  still deliberates after autoreview pushed fixes onto it.
 - If the branch moves during a run, the push is rejected and the run stops. The run that the push started takes over.
 
 All state lives in the pull request. Each comment ends with a hidden marker (`<!-- autoreview {…} -->`), so a run that crashed resumes where it stopped.

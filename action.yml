@@ -59,6 +59,7 @@ runs:
         GITEA_TOKEN: ${{ inputs.token }}
         GITHUB_TOKEN: ${{ inputs.token }}
         AUTOREVIEW_EVENT: ${{ github.event.action }}
+        AUTOREVIEW_EVENT_SHA: ${{ github.event.pull_request.head.sha }}
         PR: ${{ inputs.pr }}
         HEAVY: ${{ inputs.heavy }}
       run: |
