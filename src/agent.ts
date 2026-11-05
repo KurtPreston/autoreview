@@ -48,7 +48,7 @@ const READ_ONLY = [
   "wc",
 ];
 
-/** Git commands the implementer must leave to the loop, which commits and pushes. */
+/** Git commands the fixer must leave to the loop, which commits and pushes. */
 const LOOP_GIT = [
   "git push",
   "git commit",
@@ -69,8 +69,8 @@ export function reviewerPermissions(): Permissions {
   return { allowAll: false, allow: READ_ONLY.map(shell), deny: ["write"] };
 }
 
-/** The implementer edits and runs anything but loop-owned git commands, and heavy checks unless enabled. */
-export function implementerPermissions(config: Config, heavy: boolean): Permissions {
+/** The fixer edits and runs anything but loop-owned git commands, and heavy checks unless enabled. */
+export function fixerPermissions(config: Config, heavy: boolean): Permissions {
   const deny = LOOP_GIT.map(shell);
   if (!heavy) {
     deny.push(...config.heavyChecks.map(shell));
@@ -208,7 +208,7 @@ const FORGE_TOKENS = [
   "GH_TOKEN",
   "GITEA_TOKEN",
   "AUTOREVIEW_REVIEWER_TOKEN",
-  "AUTOREVIEW_IMPLEMENTER_TOKEN",
+  "AUTOREVIEW_FIXER_TOKEN",
 ];
 
 /**

@@ -14,7 +14,7 @@ test("fields override defaults, and roles merge field by field", () => {
   const config = parseConfig({ checks: ["npm run lint"], reviewer: { model: "gpt-5.5" } });
   assert.deepEqual(config.checks, ["npm run lint"]);
   assert.deepEqual(config.reviewer, { model: "gpt-5.5", effort: "high" });
-  assert.deepEqual(config.implementer, DEFAULTS.implementer);
+  assert.deepEqual(config.fixer, DEFAULTS.fixer);
 });
 
 test("bad values and unknown keys are rejected", () => {

@@ -27,4 +27,4 @@ jobs:
         with:
           copilot-token: ${{ secrets.COPILOT_GITHUB_TOKEN }}
           reviewer-token: ${{ secrets.AUTOREVIEW_REVIEWER_TOKEN }}
-          implementer-token: ${{ secrets.AUTOREVIEW_IMPLEMENTER_TOKEN }}
+          fixer-token: ${{ secrets.AUTOREVIEW_FIXER_TOKEN }}

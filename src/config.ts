@@ -18,16 +18,16 @@ export interface RoleConfig {
 /** A repository's `.autoreview.json`, with defaults filled in. */
 export interface Config {
   reviewer: RoleConfig;
-  implementer: RoleConfig;
+  fixer: RoleConfig;
   /** Commands that must pass before a fix is pushed. */
   checks: string[];
   /** Slow checks (tests, renders), run only on a runner that can afford them. */
   heavyChecks: string[];
-  /** Whether the implementer may render pictures to verify visual changes. */
+  /** Whether the fixer may render pictures to verify visual changes. */
   visual: boolean;
   /** Whether judgement calls are decided and flagged, or deferred to the author. */
   defer: DeferMode;
-  /** Implement-and-verify rounds after the first review. */
+  /** Fix-and-verify rounds after the first review. */
   maxRounds: number;
   /** Replies a thread may trade before it is deferred as a disagreement. */
   maxExchanges: number;
@@ -53,7 +53,7 @@ export const CONFIG_FILE = ".autoreview.json";
 
 export const DEFAULTS: Config = {
   reviewer: { model: "gpt-6-astra", effort: "high" },
-  implementer: { model: "claude-opus-5.5", effort: "high" },
+  fixer: { model: "claude-opus-5.5", effort: "high" },
   checks: [],
   heavyChecks: [],
   visual: false,
@@ -100,7 +100,7 @@ export function parseConfig(raw: unknown): Config {
   // Merge each field over its default, checking its type
   return {
     reviewer: role(raw.reviewer, DEFAULTS.reviewer, "reviewer"),
-    implementer: role(raw.implementer, DEFAULTS.implementer, "implementer"),
+    fixer: role(raw.fixer, DEFAULTS.fixer, "fixer"),
     checks: strings(raw.checks, DEFAULTS.checks, "checks"),
     heavyChecks: strings(raw.heavyChecks, DEFAULTS.heavyChecks, "heavyChecks"),
     visual: boolean(raw.visual, DEFAULTS.visual, "visual"),

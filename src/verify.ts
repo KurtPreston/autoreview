@@ -1,4 +1,4 @@
-/** The reviewer's judgement of the implementer's answers. */
+/** The reviewer's judgement of the fixer's answers. */
 import type { PullRequest } from "./forge.ts";
 import { diffLines } from "./git.ts";
 import type { Deliberation } from "./loop.ts";

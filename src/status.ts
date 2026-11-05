@@ -3,7 +3,7 @@ import { readMarker } from "./markers.ts";
 import type { Decision } from "./schemas.ts";
 
 /** Where a thread stands, read from its comments' markers. */
-export type Status = "foreign" | "resolved" | "human" | "deferred" | "implement" | "verify";
+export type Status = "foreign" | "resolved" | "human" | "deferred" | "fix" | "verify";
 
 /** Classify a thread by its markers. Threads autoreview didn't open are foreign. */
 export function status(thread: Thread): Status {
@@ -22,7 +22,7 @@ export function status(thread: Thread): Status {
   if (markers.some((marker) => marker?.deferred)) {
     return "deferred";
   }
-  return markers.at(-1)?.role === "reviewer" ? "implement" : "verify";
+  return markers.at(-1)?.role === "reviewer" ? "fix" : "verify";
 }
 
 /**

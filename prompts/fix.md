@@ -1,6 +1,6 @@
 {{common}}
 
-## Your role: implementer
+## Your role: fixer
 
 Answer the review thread below, on `{{path}}` line {{line}}. Choose one action:
 

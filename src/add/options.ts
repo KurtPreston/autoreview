@@ -5,7 +5,7 @@ export const ACTION = "https://github.com/KurtPreston/autoreview";
 export const SECRETS = [
   "COPILOT_GITHUB_TOKEN",
   "AUTOREVIEW_REVIEWER_TOKEN",
-  "AUTOREVIEW_IMPLEMENTER_TOKEN",
+  "AUTOREVIEW_FIXER_TOKEN",
 ] as const;
 
 /** What to enable, and where. */
@@ -17,7 +17,7 @@ export interface AddOptions {
   setupActions?: string[];
   runsOn: string;
   reviewer: string;
-  implementer: string;
+  fixer: string;
   /** Secret values to store on the user's account, by name. */
   secrets: Partial<Record<(typeof SECRETS)[number], string>>;
   log: (message: string) => void;

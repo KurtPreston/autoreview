@@ -2,7 +2,7 @@ import type { Usage } from "./agent.ts";
 import type { Config } from "./config.ts";
 import type { Forge } from "./forge.ts";
 import type { Checkout } from "./git.ts";
-import { implementRound } from "./fix.ts";
+import { fixRound } from "./fix.ts";
 import { newChanges, recheckDeferred, reviewNew } from "./review.ts";
 import type { Answer, Review, Verification } from "./schemas.ts";
 import { status } from "./status.ts";
@@ -18,7 +18,7 @@ export { describe } from "./threads.ts";
 export interface Agents {
   review(task: string): Promise<Review>;
   /** May edit files in the checkout. */
-  implement(task: string): Promise<Answer>;
+  fix(task: string): Promise<Answer>;
   /** Must give a verdict for every key. */
   verify(task: string, keys: string[]): Promise<Verification>;
 }
@@ -31,7 +31,7 @@ export interface Deliberation {
   checkout: Checkout;
   /** The identities each role posts as; the same forge when there's one identity. */
   reviewer: Forge;
-  implementer: Forge;
+  fixer: Forge;
   agents: Agents;
   /** Agent calls per model, for the summary. */
   usage: Usage;
@@ -92,16 +92,16 @@ export async function deliberate(run: Deliberation): Promise<Outcome> {
   let rounds = 0;
   for (let round = 1; round <= config.maxRounds; round++) {
     const threads = await run.reviewer.threads(number);
-    const waiting = threads.filter((t) => ["implement", "verify"].includes(status(t)));
+    const waiting = threads.filter((t) => ["fix", "verify"].includes(status(t)));
     if (waiting.length === 0) {
       break;
     }
     run.log(`round ${round}: ${waiting.length} open threads`);
     rounds++;
 
-    // The implementer answers, then the reviewer judges the answers
+    // The fixer answers, then the reviewer judges the answers
     const start = await checkout.head();
-    const stopped = await implementRound(run, pr, outcome);
+    const stopped = await fixRound(run, pr, outcome);
     if (stopped) {
       return { ...outcome, stopped };
     }
@@ -115,7 +115,7 @@ export async function deliberate(run: Deliberation): Promise<Outcome> {
 
   // Threads still open at the round cap go to the author
   for (const thread of await run.reviewer.threads(number)) {
-    if (["implement", "verify"].includes(status(thread))) {
+    if (["fix", "verify"].includes(status(thread))) {
       await notice(
         run,
         thread,

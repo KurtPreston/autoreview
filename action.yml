@@ -9,10 +9,10 @@ inputs:
       token with the "Copilot Requests" permission.
     default: ${{ github.token }}
   reviewer-token:
-    description: Token of the reviewer bot account. With implementer-token, each role posts as its own user.
+    description: Token of the reviewer bot account. With fixer-token, each role posts as its own user.
     default: ""
-  implementer-token:
-    description: Token of the implementer bot account, which also pushes fixes.
+  fixer-token:
+    description: Token of the fixer bot account, which also pushes fixes.
     default: ""
   token:
     description: Fallback token when the bot tokens are absent; both roles then post as one identity.
@@ -46,7 +46,7 @@ runs:
     - name: Set up git
       shell: bash
       env:
-        PUSH_TOKEN: ${{ inputs.implementer-token || inputs.token }}
+        PUSH_TOKEN: ${{ inputs.fixer-token || inputs.token }}
       run: '"$GITHUB_ACTION_PATH/setup-git.sh"'
 
     # Deliberate; the tool skips pull requests without the label, drafts, and its own pushes
@@ -55,7 +55,7 @@ runs:
       env:
         COPILOT_GITHUB_TOKEN: ${{ inputs.copilot-token }}
         AUTOREVIEW_REVIEWER_TOKEN: ${{ inputs.reviewer-token }}
-        AUTOREVIEW_IMPLEMENTER_TOKEN: ${{ inputs.implementer-token }}
+        AUTOREVIEW_FIXER_TOKEN: ${{ inputs.fixer-token }}
         GITEA_TOKEN: ${{ inputs.token }}
         GITHUB_TOKEN: ${{ inputs.token }}
         AUTOREVIEW_EVENT: ${{ github.event.action }}

@@ -10,7 +10,7 @@ export type ForgeKind = "github" | "gitea";
 /** The forge for each role; the same one when both post as one identity. */
 export interface Roles {
   reviewer: Forge;
-  implementer: Forge;
+  fixer: Forge;
 }
 
 /** Hooks for tests: the environment, and how to ask gh for its token. */
@@ -65,9 +65,9 @@ export async function forges(remote: Remote, lookup: Lookup = {}): Promise<Roles
       : new Gitea({ ...remote, token });
 
   // Separate identities, when the workflow has a bot for each role
-  const { AUTOREVIEW_REVIEWER_TOKEN: reviewer, AUTOREVIEW_IMPLEMENTER_TOKEN: implementer } = env;
-  if (reviewer && implementer) {
-    return { reviewer: make(reviewer), implementer: make(implementer) };
+  const { AUTOREVIEW_REVIEWER_TOKEN: reviewer, AUTOREVIEW_FIXER_TOKEN: fixer } = env;
+  if (reviewer && fixer) {
+    return { reviewer: make(reviewer), fixer: make(fixer) };
   }
 
   // Otherwise both roles post as whoever the one token belongs to
@@ -83,7 +83,7 @@ export async function forges(remote: Remote, lookup: Lookup = {}): Promise<Roles
     throw new Error(`no token for ${remote.url}: set the AUTOREVIEW_* tokens or ${hint}`);
   }
   const shared = make(token);
-  return { reviewer: shared, implementer: shared };
+  return { reviewer: shared, fixer: shared };
 }
 
 /** A GitHub token: the workflow's or one in the environment, else gh's login. */

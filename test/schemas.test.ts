@@ -74,7 +74,7 @@ test("verdicts may carry a decision, except deferrals", () => {
 
 test("markers survive text that would close an HTML comment", () => {
   const decision = { chose: "Use a --> b } -->", alternative: "<!-- c -->" };
-  const body = compose("x", "Text.", { role: "implementer", kind: "answer", decision });
+  const body = compose("x", "Text.", { role: "fixer", kind: "answer", decision });
   assert.equal((body.match(/-->/g) ?? []).length, 1);
   assert.deepEqual(readMarker(body)?.decision, decision);
   assert.equal(plainText(body), "Text.");
@@ -127,7 +127,7 @@ test("each deferral mode fills the prompts with its own criteria", () => {
       threads: "",
       changes: "",
     };
-    return ["implement", "review", "verify"].map((name) => render(name, vars)).join("\n");
+    return ["fix", "review", "verify"].map((name) => render(name, vars)).join("\n");
   };
   const bestEffort = text("best-effort");
   assert.match(bestEffort, /only when the agents truly can't settle it/);

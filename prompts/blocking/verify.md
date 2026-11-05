@@ -1,1 +1,1 @@
-- `defer`: the thread meets the criteria for deferring, or you and the implementer disagree on something the author should settle. Summarise both positions in a sentence each.
+- `defer`: the thread meets the criteria for deferring, or you and the fixer disagree on something the author should settle. Summarise both positions in a sentence each.

@@ -1,5 +1,5 @@
 /** Agents backed by the Copilot CLI. */
-import { implementerPermissions, reviewerPermissions, runAgent } from "./agent.ts";
+import { fixerPermissions, reviewerPermissions, runAgent } from "./agent.ts";
 import type { Agents, Deliberation } from "./loop.ts";
 import {
   SchemaError,
@@ -30,15 +30,15 @@ export function copilotAgents({
         },
         usage,
       ),
-    implement: (task) =>
+    fix: (task) =>
       runAgent(
         {
           ...base,
-          name: "implementer",
-          role: config.implementer,
+          name: "fixer",
+          role: config.fixer,
           task,
           validate: validateAnswer,
-          permissions: implementerPermissions(config, heavy),
+          permissions: fixerPermissions(config, heavy),
         },
         usage,
       ),

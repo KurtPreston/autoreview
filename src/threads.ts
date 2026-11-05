@@ -7,12 +7,12 @@ import type { Decision } from "./schemas.ts";
 /** How much diff an agent's task carries before it is cut. */
 export const DIFF_LIMIT = 150_000;
 
-/** How many answers the implementer has given in a thread. */
+/** How many answers the fixer has given in a thread. */
 export function exchanges(thread: Thread): number {
   return thread.comments.filter((c) => readMarker(c.body)?.kind === "answer").length;
 }
 
-/** Whether the reviewer's latest comment is a ruling the implementer hasn't carried out yet. */
+/** Whether the reviewer's latest comment is a ruling the fixer hasn't carried out yet. */
 export function ruled(thread: Thread): boolean {
   const last = readMarker(thread.comments.at(-1)?.body ?? "");
   return last?.role === "reviewer" && last.value === "ruling";
@@ -47,7 +47,7 @@ export function describe(thread: Thread): string {
     .map((comment) => {
       const marker = readMarker(comment.body);
       const who = marker
-        ? `${marker.role === "reviewer" ? "Reviewer" : "Implementer"} (${marker.kind}${marker.value ? `, ${marker.value}` : ""})`
+        ? `${marker.role === "reviewer" ? "Reviewer" : "Fixer"} (${marker.kind}${marker.value ? `, ${marker.value}` : ""})`
         : `${comment.author} (a person)`;
       return `**${who}:**\n\n${plainText(comment.body)}`;
     })

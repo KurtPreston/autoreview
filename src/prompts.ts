@@ -36,10 +36,10 @@ export function common(pr: PullRequest, config: Config): string {
   });
 }
 
-/** The text that differs by deferral mode in the implement, review and verify prompts. */
+/** The text that differs by deferral mode in the fix, review and verify prompts. */
 export function modeText(config: Config): Record<string, string> {
   return {
-    deferAction: snippet(config, "implement"),
+    deferAction: snippet(config, "fix"),
     forAuthor: snippet(config, "review"),
     deferVerdict: snippet(config, "verify"),
   };

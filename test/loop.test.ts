@@ -45,7 +45,7 @@ function repository(): { origin: string; work: string } {
 /** Scripted answers, taken in order; each may act on the checkout first. */
 interface Script {
   review?: Review[];
-  implement?: ((dir: string, task: string) => Answer)[];
+  fix?: ((dir: string, task: string) => Answer)[];
   verify?: ((keys: string[], task: string) => Verification)[];
 }
 
@@ -53,7 +53,7 @@ interface Setup {
   store: Store;
   work: string;
   origin: string;
-  calls: { review: number; implement: number; verify: number };
+  calls: { review: number; fix: number; verify: number };
   /** Each review's task, as the reviewer saw it. */
   reviews: string[];
   run: () => Promise<Outcome>;
@@ -87,16 +87,16 @@ function setup(
   options.seed?.(store);
 
   // Agents play back the script, counting calls
-  const calls = { review: 0, implement: 0, verify: 0 };
+  const calls = { review: 0, fix: 0, verify: 0 };
   const reviews: string[] = [];
   const agents: Agents = {
     review: async (task) => {
       reviews.push(task);
       return script.review?.[calls.review++] ?? { summary: "Looks fine.", findings: [] };
     },
-    implement: async (task) => {
-      const step = script.implement?.[calls.implement++];
-      assert.ok(step, "unexpected implementer call");
+    fix: async (task) => {
+      const step = script.fix?.[calls.fix++];
+      assert.ok(step, "unexpected fixer call");
       return step(work, task);
     },
     verify: async (task, keys) => {
@@ -113,7 +113,7 @@ function setup(
       config,
       checkout: new Checkout(work),
       reviewer: new MemoryForge(store, "reviewer-bot"),
-      implementer: new MemoryForge(store, "implementer-bot"),
+      fixer: new MemoryForge(store, "fixer-bot"),
       agents,
       usage: {},
       push: true,
@@ -151,7 +151,7 @@ const verdict =
 test("a clear finding is fixed, pushed, verified and resolved", async () => {
   const { store, work, origin, run } = setup({
     review: [{ summary: "One problem.", findings: [finding] }],
-    implement: [fix("Math.min(n * 2, MAX)")],
+    fix: [fix("Math.min(n * 2, MAX)")],
     verify: [verdict("resolved")],
   });
   const outcome = await run();
@@ -167,13 +167,13 @@ test("a clear finding is fixed, pushed, verified and resolved", async () => {
     thread.comments.map((c) => [c.author, readMarker(c.body)?.kind]),
     [
       ["reviewer-bot", "finding"],
-      ["implementer-bot", "answer"],
+      ["fixer-bot", "answer"],
       ["reviewer-bot", "verdict"],
     ],
   );
   assert.match(
     thread.comments[1].body,
-    /^🤖 \*\*Implementer\*\* · claude-opus-5\.5 · fixed in [0-9a-f]{7}/,
+    /^🤖 \*\*Fixer\*\* · claude-opus-5\.5 · fixed in [0-9a-f]{7}/,
   );
 
   // The summary records the new head, so the next run reviews nothing old
@@ -186,11 +186,11 @@ test("a clear finding is fixed, pushed, verified and resolved", async () => {
 test("a disagreement defers after the exchange cap, and labels the pull request", async () => {
   const { store, calls, run } = setup({
     review: [{ summary: "One problem.", findings: [finding] }],
-    implement: [reply, reply],
+    fix: [reply, reply],
     verify: [verdict("follow-up"), verdict("follow-up")],
   });
   const outcome = await run();
-  assert.equal(calls.implement, 2);
+  assert.equal(calls.fix, 2);
   assert.equal(outcome.deferred, 1);
   assert.match(store.threads[0].comments.at(-1)?.body ?? "", /still disagree/);
   assert.ok(store.pr.labels.includes("needs-author"));
@@ -200,12 +200,12 @@ test("a fix that keeps failing the checks is dropped and deferred with the outpu
   const { store, work, calls, run } = setup(
     {
       review: [{ summary: "One problem.", findings: [finding] }],
-      implement: [fix("broken("), fix("still broken(")],
+      fix: [fix("broken("), fix("still broken(")],
     },
     { config: { checks: ["grep -q broken a.ts && echo 'syntax error' && exit 1 || true"] } },
   );
   const outcome = await run();
-  assert.equal(calls.implement, 2);
+  assert.equal(calls.fix, 2);
   assert.equal(outcome.commits.length, 0);
   assert.equal(readFileSync(join(work, "a.ts"), "utf8"), FILE);
   assert.equal(status(store.threads[0]), "deferred");
@@ -215,7 +215,7 @@ test("a fix that keeps failing the checks is dropped and deferred with the outpu
   );
 });
 
-test("in blocking mode, findings for the author, or outside the diff, never reach the implementer", async () => {
+test("in blocking mode, findings for the author, or outside the diff, never reach the fixer", async () => {
   const { store, calls, run } = setup(
     {
       review: [
@@ -231,7 +231,7 @@ test("in blocking mode, findings for the author, or outside the diff, never reac
     { config: { defer: "blocking" } },
   );
   const outcome = await run();
-  assert.equal(calls.implement, 0);
+  assert.equal(calls.fix, 0);
   assert.equal(outcome.deferred, 1);
   assert.match(store.comments[0].body, /Outside the diff, for the author:[\s\S]*README\.md:1/);
 });
@@ -241,7 +241,7 @@ test("a rerun resumes: it verifies an answered thread and reviews nothing old", 
     { verify: [verdict("resolved")] },
     {
       seed: (store) => {
-        // A previous run reviewed the head, and the implementer answered before it stopped
+        // A previous run reviewed the head, and the fixer answered before it stopped
         const reviewed = {
           role: "reviewer" as const,
           kind: "review" as const,
@@ -269,8 +269,8 @@ test("a rerun resumes: it verifies an answered thread and reviews nothing old", 
             },
             {
               id: 3,
-              author: "implementer-bot",
-              body: compose("x", "No.", { role: "implementer", kind: "answer" }),
+              author: "fixer-bot",
+              body: compose("x", "No.", { role: "fixer", kind: "answer" }),
               createdAt: "",
             },
           ],
@@ -312,7 +312,7 @@ test("a thread a person has joined is left to them", async () => {
     },
   );
   const outcome = await run();
-  assert.equal(calls.implement, 0);
+  assert.equal(calls.fix, 0);
   assert.equal(outcome.human, 1);
   assert.match(store.comments.at(-1)?.body ?? "", /a person has joined:[\s\S]*a\.ts:2/);
 });
@@ -321,7 +321,7 @@ test("threads open at the round cap go to the author", async () => {
   const { store, run } = setup(
     {
       review: [{ summary: "One problem.", findings: [finding] }],
-      implement: [reply],
+      fix: [reply],
       verify: [verdict("follow-up")],
     },
     { config: { maxRounds: 1 } },
@@ -334,9 +334,9 @@ test("threads open at the round cap go to the author", async () => {
 test("the run stops without replying when the branch moved", async () => {
   const { store, origin, run } = setup({
     review: [{ summary: "One problem.", findings: [finding] }],
-    implement: [
+    fix: [
       (dir) => {
-        // Someone pushes to the branch while the implementer works
+        // Someone pushes to the branch while the fixer works
         const other = join(dir, "..", "other");
         execFileSync("git", ["clone", "--quiet", "-b", "ferns", origin, other]);
         git(
@@ -463,14 +463,14 @@ function decide(text: string) {
   return (dir: string): Answer => ({ ...fix(text)(dir), decision });
 }
 
-test("in best-effort mode, a finding for the author goes to the implementer", async () => {
+test("in best-effort mode, a finding for the author goes to the fixer", async () => {
   const { store, calls, run } = setup({
     review: [{ summary: "One concern.", findings: [{ ...finding, forAuthor: true }] }],
-    implement: [fix("Math.min(n * 2, MAX)")],
+    fix: [fix("Math.min(n * 2, MAX)")],
     verify: [verdict("resolved")],
   });
   const outcome = await run();
-  assert.equal(calls.implement, 1);
+  assert.equal(calls.fix, 1);
   assert.equal(outcome.deferred, 0);
   assert.equal(status(store.threads[0]), "resolved");
   assert.doesNotMatch(store.threads[0].comments[0].body, /for the author/);
@@ -479,7 +479,7 @@ test("in best-effort mode, a finding for the author goes to the implementer", as
 test("a judgement call is resolved, flagged, listed for review and labelled", async () => {
   const { store, run } = setup({
     review: [{ summary: "One problem.", findings: [finding] }],
-    implement: [decide("Math.min(n * 2, MAX)")],
+    fix: [decide("Math.min(n * 2, MAX)")],
     verify: [verdict("resolved")],
   });
   const outcome = await run();
@@ -514,13 +514,13 @@ test("a lasting disagreement is ruled on by the reviewer and flagged, not deferr
   );
   const { store, calls, run } = setup({
     review: [{ summary: "One problem.", findings: [finding] }],
-    implement: [reply, reply, fix("Math.min(n * 2, MAX)")],
+    fix: [reply, reply, fix("Math.min(n * 2, MAX)")],
     verify: [verdict("follow-up"), rule, verdict("resolved")],
   });
   const outcome = await run();
-  assert.equal(calls.implement, 3);
+  assert.equal(calls.fix, 3);
 
-  // The reviewer saw the thread was final, ruled, and the implementer carried it out
+  // The reviewer saw the thread was final, ruled, and the fixer carried it out
   assert.match(tasks[0], /\*\*Final:\*\*/);
   const thread = store.threads[0];
   assert.match(thread.comments[4].body, /· ruling/);
@@ -538,7 +538,7 @@ test("in best-effort mode, a ruling that's still disputed is deferred", async ()
   const { store, run } = setup(
     {
       review: [{ summary: "One problem.", findings: [finding] }],
-      implement: [reply, reply, reply],
+      fix: [reply, reply, reply],
       verify: [verdict("follow-up"), rule, verdict("follow-up")],
     },
     { config: { maxRounds: 4 } },
@@ -554,7 +554,7 @@ test("both labels clear once the deferral is settled and the decision answered",
   const second = { ...finding, line: 1, body: "Rename it." };
   const both = setup({
     review: [{ summary: "Two problems.", findings: [finding, second] }],
-    implement: [
+    fix: [
       decide("Math.min(n * 2, MAX)"),
       () => ({ action: "defer", body: "Renaming drops a public export." }),
     ],

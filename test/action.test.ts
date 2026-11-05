@@ -47,7 +47,7 @@ test("setup-git points origin at the token's user and names commits after it", a
   // A stub server answers who the token belongs to
   const server = createServer((request, response) => {
     const ok = request.url === "/api/v1/user" && request.headers.authorization === "token secret";
-    response.writeHead(ok ? 200 : 401).end(ok ? JSON.stringify({ login: "implementer-bot" }) : "");
+    response.writeHead(ok ? 200 : 401).end(ok ? JSON.stringify({ login: "fixer-bot" }) : "");
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -76,9 +76,9 @@ test("setup-git points origin at the token's user and names commits after it", a
     execFileSync("git", ["-C", work, "config", "--get", key], { encoding: "utf8" }).trim();
   assert.equal(
     config("remote.origin.url"),
-    `http://implementer-bot:secret@127.0.0.1:${new URL(url).port}/o/r.git`,
+    `http://fixer-bot:secret@127.0.0.1:${new URL(url).port}/o/r.git`,
   );
-  assert.equal(config("user.name"), "implementer-bot");
+  assert.equal(config("user.name"), "fixer-bot");
   assert.throws(() => config(`http.${url}/.extraheader`));
 });
 

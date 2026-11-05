@@ -54,7 +54,7 @@ export async function addGitea(remote: Remote, options: AddOptions): Promise<voi
     await gitea.ensureLabel(label);
   }
   log(`labels ${labels.join(", ")} are ready`);
-  for (const bot of [options.reviewer, options.implementer]) {
+  for (const bot of [options.reviewer, options.fixer]) {
     if (await gitea.userExists(bot)) {
       await gitea.addCollaborator(bot);
       log(`${bot} can write to ${remote.owner}/${remote.repo}`);

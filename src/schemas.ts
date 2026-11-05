@@ -30,7 +30,7 @@ export interface Decision {
 export const ACTIONS = ["fix", "reply", "defer"] as const;
 export type Action = (typeof ACTIONS)[number];
 
-/** The implementer's answer to one thread. */
+/** The fixer's answer to one thread. */
 export interface Answer {
   action: Action;
   /** The reply to post: what was changed, why not, or why it's the author's call. */
@@ -44,11 +44,11 @@ export interface Answer {
 export const VERDICTS = ["resolved", "follow-up", "defer"] as const;
 export type Verdict = (typeof VERDICTS)[number];
 
-/** The reviewer's judgement of the implementer's answers. */
+/** The reviewer's judgement of the fixer's answers. */
 export interface Verification {
-  /** A decision on `resolved` keeps the implementer's side; on `follow-up`, it rules the reviewer's way. */
+  /** A decision on `resolved` keeps the fixer's side; on `follow-up`, it rules the reviewer's way. */
   threads: { key: string; verdict: Verdict; body: string; decision?: Decision }[];
-  /** New problems, only on lines the implementer changed. */
+  /** New problems, only on lines the fixer changed. */
   findings: Finding[];
 }
 

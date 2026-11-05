@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 const exec = promisify(execFile);
 
 /** Marks autoreview's own commits, whichever identity pushed them. */
-export const TRAILER = { key: "Autoreview", value: "implementer" };
+export const TRAILER = { key: "Autoreview", value: "fixer" };
 
 /** Git and shell commands in one checkout. */
 export class Checkout {

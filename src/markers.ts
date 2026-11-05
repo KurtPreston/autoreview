@@ -5,7 +5,7 @@
 
 import type { Decision } from "./schemas.ts";
 
-export type Role = "reviewer" | "implementer";
+export type Role = "reviewer" | "fixer";
 
 export interface Marker {
   role: Role;
