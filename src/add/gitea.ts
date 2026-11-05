@@ -1,28 +1,31 @@
 // Enable autoreview on a Gitea repository: write its workflow and config, create its
 // labels, add the bot accounts as collaborators, and optionally store the user-level secrets.
-import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { CONFIG_FILE, DEFAULTS } from "../config.ts";
 import { Gitea } from "../gitea.ts";
-import { findToken, parseRemote } from "../remote.ts";
+import { findToken, type Remote } from "../remote.ts";
 import { fill, guessConfig, setupSteps, template, writeNew } from "./files.ts";
 import { ACTION, type AddOptions } from "./options.ts";
+import { vendor } from "./vendor.ts";
 
 const WORKFLOW = ".gitea/workflows/autoreview.yml";
+const VENDORED = ".gitea/actions/autoreview";
 
 /** Enable autoreview on a repository. Files that already exist are left alone. */
-export async function add(options: AddOptions): Promise<void> {
+export async function addGitea(remote: Remote, options: AddOptions): Promise<void> {
   const { repo, log } = options;
-  const origin = execFileSync("git", ["-C", repo, "remote", "get-url", "origin"], {
-    encoding: "utf8",
-  }).trim();
-  const remote = parseRemote(origin);
   const token = await findToken(remote.url);
   if (!token) {
     throw new Error(`no token for ${remote.url}: set GITEA_TOKEN or log in with tea`);
   }
   const gitea = new Gitea({ ...remote, token, fetch: options.fetch });
+
+  // The action: this repository's, or a copy inside the project
+  const uses = options.vendor ? await vendor(repo, VENDORED) : `${ACTION}@${options.ref}`;
+  if (options.vendor) {
+    log(`copied the action to ${VENDORED}; rerun with --vendor to update it`);
+  }
 
   // The workflow, with the project's setup when it uses npm
   const npm = existsSync(join(repo, "package-lock.json"));
@@ -31,8 +34,7 @@ export async function add(options: AddOptions): Promise<void> {
     join(repo, WORKFLOW),
     fill(await template("gitea.yml"), {
       runsOn: options.runsOn,
-      action: ACTION,
-      ref: options.ref,
+      uses,
       setup,
       setupActions: setupSteps(options.setupActions ?? []),
     }),

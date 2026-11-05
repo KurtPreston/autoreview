@@ -21,6 +21,8 @@ export interface AddOptions {
   /** Secret values to store on the user's account, by name. */
   secrets: Partial<Record<(typeof SECRETS)[number], string>>;
   log: (message: string) => void;
+  /** Copy the action into the repository instead of fetching it from GitHub. */
+  vendor?: boolean;
   /** Injected for tests. */
   fetch?: typeof fetch;
 }

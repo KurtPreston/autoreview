@@ -1,0 +1,39 @@
+# Autoreview: two agents deliberate pull requests labelled "autoreview". One reviews;
+# the other fixes, replies, or defers to the author. Added by autoreview's add.sh.
+# It posts and pushes as github-actions[bot], with the Copilot CLI billed to the organization.
+name: Autoreview
+
+on:
+  pull_request:
+    types: [opened, labeled, synchronize, reopened, ready_for_review]
+
+# Push fixes, post reviews and labels, start checks after a fix, and call the Copilot CLI
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: write
+  copilot-requests: write
+
+# One run per pull request at a time; a newer one waits rather than cancelling
+concurrency:
+  group: autoreview-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  autoreview:
+    # Skip drafts, and forks, whose heads the workflow's token can't push to
+    if: >-
+      contains(github.event.pull_request.labels.*.name, 'autoreview') &&
+      !github.event.pull_request.draft &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: {{runsOn}}
+    timeout-minutes: 120
+    steps:
+      # The whole history, so a review can diff against the last one
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+{{setup}}{{setupActions}}
+      # Deliberate: review, fix and reply, and defer what's for the author
+      - uses: {{uses}}

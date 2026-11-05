@@ -1,7 +1,7 @@
 import "./scratch.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -117,4 +117,75 @@ test("a token without the user scope gets advice instead of a crash", async () =
     fetch: scoped,
   });
   assert.match(log.at(-1) ?? "", /needs the write:user scope/);
+});
+
+/** A repository whose origin is on GitHub, with a stub API that knows one label. */
+function githubProject(files: Record<string, string>) {
+  const repo = mkdtempSync(join(tmpdir(), "autoreview-add-"));
+  execFileSync("git", ["init", "--quiet", repo]);
+  execFileSync("git", ["-C", repo, "remote", "add", "origin", "git@github.com:o/r.git"]);
+  for (const [path, text] of Object.entries(files)) {
+    mkdirSync(join(repo, path, ".."), { recursive: true });
+    writeFileSync(join(repo, path), text);
+  }
+  const calls: string[] = [];
+  const fake = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+    const url = new URL(String(input));
+    const call = `${init?.method ?? "GET"} ${url.host}${url.pathname}`;
+    calls.push(call);
+    const known = call === "GET api.github.com/repos/o/r/labels/autoreview";
+    return new Response("{}", { status: known || call.startsWith("POST") ? 200 : 404 });
+  };
+  process.env.GITHUB_TOKEN = "t";
+  return { repo, calls, fetch: fake as typeof fetch };
+}
+
+const githubOptions = {
+  ref: "v1",
+  runsOn: "ubuntu-latest",
+  reviewer: "",
+  implementer: "",
+  secrets: {},
+};
+
+test("on GitHub, the workflow uses the workflow's token, and checks are started after fixes", async () => {
+  const { repo, calls, fetch } = githubProject({
+    "package.json": JSON.stringify(scripts),
+    ".github/workflows/ci.yml": "on:\n  pull_request:\n  workflow_dispatch:\n",
+    ".github/workflows/lint.yml": "on: [pull_request]\n",
+    ".github/workflows/release.yml": "on:\n  workflow_dispatch:\n",
+  });
+  const log: string[] = [];
+  await add({ ...githubOptions, repo, log: (message) => log.push(message), fetch });
+
+  // The workflow names the action by owner/repo, and grants what the built-in token needs
+  const workflow = readFileSync(join(repo, ".github/workflows/autoreview.yml"), "utf8");
+  assert.ok(workflow.includes(`uses: ${new URL(ACTION).pathname.slice(1)}@v1\n`));
+  assert.match(workflow, /copilot-requests: write/);
+  assert.match(workflow, /head\.repo\.full_name == github\.repository/);
+  assert.doesNotMatch(workflow, /\{\{\w+\}\}|secrets\./);
+
+  // Pull request checks that can be started by hand are, and the others are named
+  const config = JSON.parse(readFileSync(join(repo, ".autoreview.json"), "utf8"));
+  assert.deepEqual(config.dispatch, ["ci.yml"]);
+  assert.ok(log.some((line) => line.startsWith("lint.yml won't run on autoreview's fixes")));
+
+  // Only the missing labels are created, and no bots or secrets
+  assert.deepEqual(
+    calls.filter((call) => call.startsWith("POST")),
+    ["POST api.github.com/repos/o/r/labels", "POST api.github.com/repos/o/r/labels"],
+  );
+});
+
+test("--vendor copies the action into the repository and uses the copy", async () => {
+  const { repo, fetch } = githubProject({
+    ".github/actions/autoreview/stale.txt": "from an older copy",
+  });
+  await add({ ...githubOptions, repo, vendor: true, log: () => {}, fetch });
+  const workflow = readFileSync(join(repo, ".github/workflows/autoreview.yml"), "utf8");
+  assert.match(workflow, /uses: \.\/\.github\/actions\/autoreview\n/);
+  for (const part of ["action.yml", "setup-git.sh", "src/autoreview.ts", "prompts"]) {
+    assert.ok(existsSync(join(repo, ".github/actions/autoreview", part)), part);
+  }
+  assert.ok(!existsSync(join(repo, ".github/actions/autoreview/stale.txt")));
 });

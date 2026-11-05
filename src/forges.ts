@@ -87,13 +87,13 @@ export async function forges(remote: Remote, lookup: Lookup = {}): Promise<Roles
 }
 
 /** A GitHub token: the workflow's or one in the environment, else gh's login. */
-function githubToken(remote: Remote, lookup: Required<Lookup>): string | undefined {
+export function githubToken(remote: Remote, lookup: Required<Lookup>): string | undefined {
   const { env, ghToken } = lookup;
   return env.GITHUB_TOKEN || env.GH_TOKEN || ghToken(new URL(remote.url).host);
 }
 
 /** gh's token for a host, or nothing when gh is missing or logged out. */
-function ghAuthToken(host: string): string | undefined {
+export function ghAuthToken(host: string): string | undefined {
   try {
     const token = execFileSync("gh", ["auth", "token", "--hostname", host], {
       encoding: "utf8",
