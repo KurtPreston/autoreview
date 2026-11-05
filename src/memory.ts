@@ -1,10 +1,13 @@
 import type { Comment, CommitStatus, Forge, NewComment, PullRequest, Thread } from "./forge.ts";
 import { threadKey } from "./forge.ts";
+import type { Checkout } from "./git.ts";
 
 /** A pull request's state, held in memory. */
 export interface Store {
   pr: PullRequest;
   diff: string;
+  /** Overrides `diff`, such as to follow a dry run's local commits. */
+  liveDiff?: () => Promise<string>;
   threads: Thread[];
   comments: Comment[];
   /** Autoreview's latest status on each commit. */
@@ -22,6 +25,24 @@ export async function snapshot(forge: Forge, number: number): Promise<Store> {
     threads: await forge.threads(number),
     comments: await forge.comments(number),
     nextId: 1_000_000_000,
+  };
+}
+
+/**
+ * Have a store's diff follow commits in a checkout, as a push would, for a dry run, whose fixes
+ * are committed but never pushed. Keeps the store's diff when the base isn't in the checkout.
+ */
+export function followCheckout(store: Store, checkout: Checkout): void {
+  const { headSha, baseSha } = store.pr;
+  store.liveDiff = async () => {
+    if ((await checkout.head()) === headSha) {
+      return store.diff;
+    }
+    try {
+      return await checkout.git("diff", "--no-color", `${baseSha}...HEAD`);
+    } catch {
+      return store.diff;
+    }
   };
 }
 
@@ -47,7 +68,7 @@ export class MemoryForge implements Forge {
   }
 
   async diff(): Promise<string> {
-    return this.store.diff;
+    return this.store.liveDiff ? this.store.liveDiff() : this.store.diff;
   }
 
   async threads(): Promise<Thread[]> {

@@ -10,7 +10,7 @@ import { loadConfig } from "./config.ts";
 import { Checkout } from "./git.ts";
 import { forgeKind, forges } from "./forges.ts";
 import { copilotAgents, deliberate } from "./loop.ts";
-import { MemoryForge, snapshot } from "./memory.ts";
+import { followCheckout, MemoryForge, snapshot, type Store } from "./memory.ts";
 import { parseRemote, type Remote } from "./remote.ts";
 import { dispatchAfterPush, ownPush } from "./trigger.ts";
 
@@ -66,8 +66,9 @@ async function main(): Promise<void> {
   // A dry run plays the deliberation against a copy of the pull request in memory
   const dryRun = values["dry-run"];
   let roles = { reviewer, fixer };
+  let store: Store | undefined;
   if (dryRun) {
-    const store = await snapshot(reviewer, pr);
+    store = await snapshot(reviewer, pr);
     store.onWrite = (author, action, detail) => console.log(`\n── ${author}: ${action}\n${detail}`);
     roles = {
       reviewer: new MemoryForge(store, await reviewer.login()),
@@ -83,6 +84,10 @@ async function main(): Promise<void> {
     number: pr,
     sha: head.headSha,
   });
+  // A dry run's fixes are committed but never pushed, so its diff follows the checkout
+  if (store) {
+    followCheckout(store, checkout);
+  }
   try {
     // A run started by autoreview's own push has nothing to do
     if (await ownPush(checkout, head.headSha)) {
