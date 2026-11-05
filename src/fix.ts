@@ -58,10 +58,11 @@ export async function fixRound(
 
   // Push before replying, so the commits the replies cite exist
   if (run.push && replies.some((r) => r.commit)) {
+    const head = await run.checkout.head();
     if (!(await run.checkout.push(pr.headBranch ?? pr.headRef))) {
       return `${pr.headRef} moved during the run; a newer run will continue`;
     }
-    await run.progress.working("Pushed fixes; verifying them", await run.checkout.head());
+    await run.progress.working("Pushed fixes; verifying them", head);
   }
   for (const reply of replies) {
     await answerThread(run, reply);
@@ -105,7 +106,7 @@ export async function failingCheck(run: Run): Promise<string | undefined> {
     return undefined;
   }
   for (const command of checks(run)) {
-    const result = await run.checkout.check(command);
+    const result = await run.checkout.check(command, run.signal);
     if (!result.ok) {
       return `$ ${command}\n${result.output}`;
     }

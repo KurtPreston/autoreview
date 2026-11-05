@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { compose, readMarker } from "../src/markers.ts";
 import { status } from "../src/loop.ts";
+import { Checkout } from "../src/git.ts";
 import { MemoryForge } from "../src/memory.ts";
 import type { Answer, Verification } from "../src/schemas.ts";
 import {
@@ -586,21 +587,15 @@ test("a run that fails marks its status, and a status that can't be set doesn't 
   assert.deepEqual([status?.state, status?.description], ["error", "Failed: 502 Bad Gateway"]);
 });
 
-test("a run cancelled after a push marks the pushed commit stopped, and nothing overwrites it", async () => {
+test("a run cancelled after a push marks the pushed commit stopped, and its rounds stop", async () => {
   const stop = new AbortController();
   let release = () => {};
-  let reachedRound2 = () => {};
-  const round2 = new Promise<void>((resolve) => (reachedRound2 = resolve));
+  let returned = () => {};
+  const answered = new Promise<void>((resolve) => (returned = resolve));
   const cancelled = setup(
     {
       review: [{ summary: "One problem.", findings: [finding] }],
-      fix: [
-        fix("Math.min(n * 2, MAX)"),
-        () => {
-          reachedRound2();
-          return reply();
-        },
-      ],
+      fix: [fix("Math.min(n * 2, MAX)")],
       verify: [verdict("follow-up")],
     },
     { signal: stop.signal },
@@ -612,7 +607,9 @@ test("a run cancelled after a push marks the pushed commit stopped, and nothing 
   cancelled.agents.verify = async (task, keys) => {
     stop.abort(new Error("cancelled by SIGTERM"));
     await new Promise<void>((resolve) => (release = resolve));
-    return verify(task, keys);
+    const verification = await verify(task, keys);
+    setImmediate(returned);
+    return verification;
   };
   await assert.rejects(cancelled.run(), /cancelled by SIGTERM/);
   const pushed = git(cancelled.work, "rev-parse", "HEAD");
@@ -624,10 +621,62 @@ test("a run cancelled after a push marks the pushed commit stopped, and nothing 
   const stopped = ["error", "Stopped: cancelled by SIGTERM"];
   assert.deepEqual(final(), stopped);
 
-  // The abandoned rounds carry on into round 2, but the status stays stopped
+  // The abandoned verification's answer posts nothing, and no round follows it
+  const comments = JSON.stringify([cancelled.store.threads, cancelled.store.comments]);
   release();
-  await round2;
+  await answered;
+  assert.equal(JSON.stringify([cancelled.store.threads, cancelled.store.comments]), comments);
+  assert.deepEqual(cancelled.calls, { review: 1, fix: 1, verify: 1 });
+  assert.equal(git(cancelled.work, "rev-parse", "HEAD"), pushed);
   assert.deepEqual(final(), stopped);
+});
+
+test("a push that lands after a run is cancelled gets the stopped status too", async () => {
+  const stop = new AbortController();
+  const cancelled = setup(
+    {
+      review: [{ summary: "One problem.", findings: [finding] }],
+      fix: [fix("Math.min(n * 2, MAX)")],
+      verify: [verdict("resolved")],
+    },
+    { signal: stop.signal },
+  );
+
+  // The job is cancelled while the fix is being pushed
+  const checkout = Checkout.prototype;
+  const push = checkout.push;
+  let release = () => {};
+  let started = () => {};
+  const pushing = new Promise<void>((resolve) => (started = resolve));
+  let landed: Promise<boolean> | undefined;
+  checkout.push = async function (branch) {
+    started();
+    await new Promise<void>((resolve) => (release = resolve));
+    landed = push.call(this, branch);
+    return landed;
+  };
+  try {
+    const run = cancelled.run();
+    await pushing;
+    stop.abort(new Error("cancelled by SIGTERM"));
+    await assert.rejects(run, /cancelled by SIGTERM/);
+    const first = cancelled.store.pr.headSha;
+    assert.equal(cancelled.store.statuses?.[first]?.description, "Stopped: cancelled by SIGTERM");
+    release();
+    await new Promise((resolve) => setImmediate(resolve));
+    await landed;
+    await new Promise((resolve) => setImmediate(resolve));
+  } finally {
+    checkout.push = push;
+  }
+  const pushed = git(cancelled.origin, "rev-parse", "ferns");
+  assert.notEqual(pushed, cancelled.store.pr.headSha);
+  const status = cancelled.store.statuses?.[pushed];
+  assert.deepEqual(
+    [status?.state, status?.description],
+    ["error", "Stopped: cancelled by SIGTERM"],
+  );
+  assert.equal(cancelled.calls.verify, 0);
 });
 
 test("a pending status still in flight when a run is cancelled doesn't outlast the ending", async () => {

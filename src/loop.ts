@@ -121,11 +121,19 @@ export async function deliberate(input: Deliberation): Promise<Outcome> {
     log: input.log,
   });
   try {
-    // Cancellation can come at any point, so race it against setup as well as the rounds
-    const result = await Promise.race([
-      deliberateFrom({ ...input, roles, progress }, pr, outcome),
-      aborted(input.signal),
-    ]);
+    // Cancellation can come at any point, so race it against setup as well as the rounds,
+    // and stop the abandoned rounds at their next call to the forge, checkout or agents
+    const { signal } = input;
+    const run = {
+      ...input,
+      reviewer: until(input.reviewer, signal),
+      fixer: until(input.fixer, signal),
+      checkout: until(input.checkout, signal),
+      agents: until(input.agents, signal),
+      roles,
+      progress,
+    };
+    const result = await Promise.race([deliberateFrom(run, pr, outcome), aborted(signal)]);
     await progress.done(describeOutcome(result));
     return result;
   } catch (error) {
@@ -163,6 +171,28 @@ function aborted(signal: AbortSignal | undefined): Promise<never> {
       reject(signal.reason);
     }
     signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+  });
+}
+
+/**
+ * The same object, but its methods throw the signal's reason once it's aborted, so work
+ * abandoned on cancellation makes no further calls. A call already under way finishes.
+ */
+function until<T extends object>(target: T, signal: AbortSignal | undefined): T {
+  if (!signal) {
+    return target;
+  }
+  return new Proxy(target, {
+    get(object, key) {
+      const value: unknown = Reflect.get(object, key, object);
+      if (typeof value !== "function") {
+        return value;
+      }
+      return (...args: unknown[]) => {
+        signal.throwIfAborted();
+        return value.apply(object, args);
+      };
+    },
   });
 }
 

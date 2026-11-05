@@ -27,6 +27,8 @@ export interface AgentCall<T> {
   timeoutMs: number;
   /** Progress lines, such as for the Actions log. */
   log?: (message: string) => void;
+  /** Stops the CLI when aborted, as when the job is cancelled. */
+  signal?: AbortSignal;
 }
 
 /** How often a running call says it's still working. */
@@ -128,6 +130,7 @@ export async function runAgent<T>(call: AgentCall<T>, usage: Usage): Promise<T> 
   // First attempt, then one retry quoting the problem
   let task = call.task;
   for (let attempt = 1; ; attempt++) {
+    call.signal?.throwIfAborted();
     const taskFile = join(runDir, `task-${attempt}.md`);
     await writeFile(taskFile, task);
     usage[call.role.model] = (usage[call.role.model] ?? 0) + 1;
@@ -203,9 +206,14 @@ function retryTask(task: string, answer: string, problem: string): string {
   ].join("\n\n");
 }
 
-/** Run the CLI, returning its output, or throwing on failure or timeout. */
+/** Run the CLI, returning its output, or throwing on failure, timeout or cancellation. */
 function run(bin: string, args: string[], call: AgentCall<unknown>): Promise<string> {
   return new Promise((resolve, reject) => {
+    const { signal } = call;
+    if (signal?.aborted) {
+      reject(signal.reason);
+      return;
+    }
     const child = spawn(bin, args, {
       cwd: call.cwd,
       env: agentEnv(),
@@ -216,22 +224,32 @@ function run(bin: string, args: string[], call: AgentCall<unknown>): Promise<str
     child.stdout.on("data", (chunk: Buffer) => (stdout += chunk));
     child.stderr.on("data", (chunk: Buffer) => (stderr += chunk));
 
-    // Stop a run that takes too long, forcefully if it ignores the request
+    // Stop a run that takes too long or is cancelled, forcefully if it ignores the request
+    const stop = () => {
+      child.kill("SIGTERM");
+      setTimeout(() => child.kill("SIGKILL"), 5000).unref();
+    };
     let timedOut = false;
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill("SIGTERM");
-      setTimeout(() => child.kill("SIGKILL"), 5000).unref();
+      stop();
     }, call.timeoutMs);
+    signal?.addEventListener("abort", stop, { once: true });
+    const settled = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", stop);
+    };
 
     // Settle on exit
     child.on("error", (error) => {
-      clearTimeout(timer);
+      settled();
       reject(new AgentError(`${call.name}: can't run ${bin}: ${error.message}`));
     });
     child.on("close", (code) => {
-      clearTimeout(timer);
-      if (timedOut) {
+      settled();
+      if (signal?.aborted) {
+        reject(signal.reason);
+      } else if (timedOut) {
         reject(
           new AgentError(`${call.name}: timed out after ${Math.round(call.timeoutMs / 1000)}s`),
         );

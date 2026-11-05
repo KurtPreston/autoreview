@@ -116,6 +116,20 @@ test("two invalid answers, a failed run, or a timeout throw", async () => {
   await assert.rejects(runAgent(call({ timeoutMs: 200 }), {}), AgentError);
 });
 
+test("cancelling a call stops the CLI and throws the reason", async () => {
+  await fake([{ stdout: JSON.stringify(answer), sleepMs: 10_000 }]);
+  const stop = new AbortController();
+  const started = Date.now();
+  setTimeout(() => stop.abort(new Error("cancelled by SIGTERM")), 200);
+  await assert.rejects(runAgent(call({ signal: stop.signal }), {}), /cancelled by SIGTERM/);
+  assert.ok(Date.now() - started < 5000, "the CLI kept running after the cancellation");
+
+  // A call cancelled before it starts doesn't run the CLI
+  const { log } = await fake([{ stdout: JSON.stringify(answer) }]);
+  await assert.rejects(runAgent(call({ signal: stop.signal }), {}), /cancelled by SIGTERM/);
+  await assert.rejects(log(), /ENOENT/);
+});
+
 test("the reviewer can't write; the fixer can't push or run heavy checks", async () => {
   assert.deepEqual(reviewerPermissions().deny, ["write"]);
   assert.equal(reviewerPermissions().allowAll, false);

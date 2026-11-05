@@ -10,7 +10,8 @@ export class Progress {
   readonly #url: string | undefined;
   readonly #log: (message: string) => void;
   #sha: string;
-  #over = false;
+  /** How the run ended, once it has. */
+  #ending: { state: CommitStatus["state"]; description: string } | undefined;
   /** Writes not yet answered, which could land after a later one. */
   readonly #inFlight = new Set<Promise<void>>();
 
@@ -26,15 +27,20 @@ export class Progress {
     this.#log = options.log;
   }
 
-  /** The run is still going; with a sha, the pull request has moved to that commit. */
+  /**
+   * The run is still going; with a sha, the pull request has moved to that commit. A push that
+   * lands after the run ended, as when it was cancelled mid-push, gets the ending instead.
+   */
   async working(description: string, sha?: string): Promise<void> {
-    if (this.#over) {
-      return;
-    }
+    const moved = sha !== undefined && sha !== this.#sha;
     if (sha) {
       this.#sha = sha;
     }
-    await this.#set("pending", description);
+    if (!this.#ending) {
+      await this.#set("pending", description);
+    } else if (moved) {
+      await this.#set(this.#ending.state, this.#ending.description);
+    }
   }
 
   /**
@@ -50,10 +56,10 @@ export class Progress {
   }
 
   async #end(state: CommitStatus["state"], description: string): Promise<void> {
-    if (this.#over) {
+    if (this.#ending) {
       return;
     }
-    this.#over = true;
+    this.#ending = { state, description };
     const earlier = [...this.#inFlight];
     await this.#set(state, description);
 

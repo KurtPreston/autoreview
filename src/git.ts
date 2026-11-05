@@ -96,15 +96,20 @@ export class Checkout {
       .join("\n");
   }
 
-  /** Run a shell command, returning whether it passed and the tail of its output. */
-  async check(command: string): Promise<{ ok: boolean; output: string }> {
+  /**
+   * Run a shell command, returning whether it passed and the tail of its output. Aborting the
+   * signal stops the command and throws.
+   */
+  async check(command: string, signal?: AbortSignal): Promise<{ ok: boolean; output: string }> {
     try {
       const { stdout, stderr } = await exec("sh", ["-c", command], {
         cwd: this.dir,
         maxBuffer: 64 * 1024 * 1024,
+        signal,
       });
       return { ok: true, output: tail(stdout + stderr) };
     } catch (error) {
+      signal?.throwIfAborted();
       const failed = error as { stdout?: string; stderr?: string; message: string };
       return {
         ok: false,
