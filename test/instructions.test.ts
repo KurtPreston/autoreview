@@ -128,6 +128,7 @@ test("applyTo splits at commas outside braces and brackets", async () => {
     "\\,z",
   ]);
   assert.deepEqual(globs("a[b, c"), ["a[b", "c"]);
+  assert.deepEqual(globs("src/[[]*.ts, docs/**"), ["src/[[]*.ts", "docs/**"]);
 
   const dir = await checkout({
     [`${DIR}/ts.instructions.md`]: '---\napplyTo: "**/*.{ts,tsx}, docs/**"\n---\n',
@@ -137,4 +138,14 @@ test("applyTo splits at commas outside braces and brackets", async () => {
       { path: `${DIR}/ts.instructions.md`, applyTo: "**/*.{ts,tsx},docs/**" },
     ]);
   }
+
+  const bracketed = await checkout({
+    [`${DIR}/b.instructions.md`]: '---\napplyTo: "src/[[]*.ts, docs/**"\n---\n',
+  });
+  for (const file of ["src/[a.ts", "docs/c.md"]) {
+    assert.deepEqual(await instructionsFor({ dir: bracketed, changed: [file] }), [
+      { path: `${DIR}/b.instructions.md`, applyTo: "src/[[]*.ts,docs/**" },
+    ]);
+  }
+  assert.deepEqual(await instructionsFor({ dir: bracketed, changed: ["src/a.ts"] }), []);
 });

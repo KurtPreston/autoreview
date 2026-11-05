@@ -63,18 +63,21 @@ export async function instructionsFor({
 /** The globs in a comma-separated list, keeping the commas inside braces and brackets. */
 export function globs(list: string): string[] {
   const patterns: string[] = [];
-  let [current, braces, bracket] = ["", 0, false];
+  // `opened` is where the open character class starts in `current`, or -1 outside one
+  let [current, braces, opened] = ["", 0, -1];
   for (let index = 0; index < list.length; index++) {
     const char = list[index];
     if (char === "\\" && index + 1 < list.length) {
       current += char + list[++index];
       continue;
     }
-    if (bracket) {
+    if (opened >= 0) {
       // A `]` right after the opening `[`, `[!` or `[^` is a member, not the end
-      bracket = char !== "]" || /\[[!^]?$/.test(current);
+      if (char === "]" && !/^\[[!^]?$/.test(current.slice(opened))) {
+        opened = -1;
+      }
     } else if (char === "[") {
-      bracket = list.includes("]", index + 2);
+      opened = list.includes("]", index + 2) ? current.length : -1;
     } else if (char === "{") {
       braces++;
     } else if (char === "}" && braces > 0) {
