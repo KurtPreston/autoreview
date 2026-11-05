@@ -55,6 +55,8 @@ export interface Setup {
   calls: { review: number; fix: number; verify: number };
   /** Each review's task, as the reviewer saw it. */
   reviews: string[];
+  /** The scripted agents, which a test may replace. */
+  agents: Agents;
   run: () => Promise<Outcome>;
 }
 
@@ -120,7 +122,7 @@ export function setup(
       force: false,
       log: () => {},
     });
-  return { store, work, origin, calls, reviews, run };
+  return { store, work, origin, calls, reviews, agents, run };
 }
 
 export const finding = {

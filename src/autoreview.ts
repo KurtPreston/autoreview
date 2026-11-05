@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { loadConfig } from "./config.ts";
 import { Checkout } from "./git.ts";
-import { forges } from "./forges.ts";
+import { forgeKind, forges } from "./forges.ts";
 import { copilotAgents, deliberate } from "./loop.ts";
 import { MemoryForge, snapshot } from "./memory.ts";
 import { parseRemote, type Remote } from "./remote.ts";
@@ -101,6 +101,7 @@ async function main(): Promise<void> {
       push: !dryRun,
       heavy: values.heavy,
       force: values.force,
+      link: runLink(remote),
       log: (message) => console.error(`autoreview: ${message}`),
     });
     console.error(`autoreview: ${JSON.stringify(outcome)}`);
@@ -117,6 +118,15 @@ async function main(): Promise<void> {
   } finally {
     await cleanup();
   }
+}
+
+/** The GitHub Actions run this is, for the commit status to link to. */
+function runLink(remote: Remote): string | undefined {
+  const { GITHUB_SERVER_URL: server, GITHUB_REPOSITORY: name, GITHUB_RUN_ID: id } = process.env;
+  if (forgeKind(remote) !== "github" || !server || !name || !id) {
+    return undefined;
+  }
+  return `${server.replace(/\/$/, "")}/${name}/actions/runs/${id}`;
 }
 
 /** The repository's server and name: from the CI environment, or the clone's origin. */

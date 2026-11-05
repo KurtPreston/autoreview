@@ -1,4 +1,4 @@
-import type { Comment, Forge, NewComment, PullRequest, Thread } from "./forge.ts";
+import type { Comment, CommitStatus, Forge, NewComment, PullRequest, Thread } from "./forge.ts";
 import { threadKey } from "./forge.ts";
 
 /** A pull request's state, held in memory. */
@@ -7,6 +7,8 @@ export interface Store {
   diff: string;
   threads: Thread[];
   comments: Comment[];
+  /** Autoreview's latest status on each commit. */
+  statuses?: Record<string, CommitStatus>;
   nextId: number;
   /** Called with a description of every write, for dry runs. */
   onWrite?: (author: string, action: string, detail: string) => void;
@@ -114,6 +116,12 @@ export class MemoryForge implements Forge {
   async removeLabel(_: number, name: string): Promise<void> {
     this.store.pr.labels = this.store.pr.labels.filter((label) => label !== name);
     this.#log("label", `-${name}`);
+  }
+
+  async setStatus(sha: string, status: CommitStatus): Promise<void> {
+    this.store.statuses ??= {};
+    this.store.statuses[sha] = { ...status };
+    this.#log(`status ${sha.slice(0, 7)}`, `${status.state}: ${status.description}`);
   }
 
   #thread(thread: Thread): Thread {

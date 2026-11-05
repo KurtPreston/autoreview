@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { compose, readMarker } from "../src/markers.ts";
 import { status } from "../src/loop.ts";
+import { MemoryForge } from "../src/memory.ts";
 import type { Answer, Verification } from "../src/schemas.ts";
 import {
   authorCommits,
@@ -516,4 +517,57 @@ test("a file moved unchanged into a folder points agents at that folder's conven
 
   await moved.run();
   assert.match(moved.reviews[0], /conventions: `AGENTS\.md`\. Then read[^.]*: `pkg\/AGENTS\.md`\./);
+});
+
+test("the commit status is pending while working, follows pushed fixes, and ends done", async () => {
+  const seen: string[] = [];
+  const clear = setup(
+    {
+      review: [{ summary: "One problem.", findings: [finding] }],
+      fix: [fix("Math.min(n * 2, MAX)")],
+      verify: [verdict("resolved")],
+    },
+    {
+      seed: (store) =>
+        (store.onWrite = (_, action, detail) => {
+          if (action.startsWith("status")) {
+            seen.push(`${action.slice(7)} ${detail}`);
+          }
+        }),
+    },
+  );
+  const first = clear.store.pr.headSha.slice(0, 7);
+  await clear.run();
+  const pushed = git(clear.work, "rev-parse", "--short=7", "HEAD");
+  assert.deepEqual(seen, [
+    `${first} pending: Reviewing`,
+    `${first} pending: Round 1: 1 open thread`,
+    `${pushed} pending: Pushed fixes; verifying them`,
+    `${pushed} success: Done: 1 resolved, 0 for the author`,
+  ]);
+});
+
+test("a run that fails marks its status, and a status that can't be set doesn't stop a run", async () => {
+  const broken = setup({ review: [{ summary: "Fine.", findings: [] }] });
+  const forge = MemoryForge.prototype;
+  const original = forge.setStatus;
+  forge.setStatus = async () => {
+    throw new Error("403 Resource not accessible");
+  };
+  try {
+    assert.equal((await broken.run()).resolved, 0);
+  } finally {
+    forge.setStatus = original;
+  }
+
+  // An agent that throws leaves an error status before the error surfaces
+  const failing = setup({});
+  failing.store.pr.labels = ["autoreview"];
+  const agents = failing.agents;
+  agents.review = async () => {
+    throw new Error("agent crashed");
+  };
+  await assert.rejects(failing.run(), /agent crashed/);
+  const final = failing.store.statuses?.[failing.store.pr.headSha];
+  assert.deepEqual([final?.state, final?.description], ["error", "Failed: agent crashed"]);
 });

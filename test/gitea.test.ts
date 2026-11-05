@@ -171,3 +171,14 @@ test("a workflow is started on a branch through the dispatch API", async () => {
   await forge.dispatch("checks.yml", "ferns");
   assert.deepEqual(calls[0].body, { ref: "ferns" });
 });
+
+test("a commit status is set under autoreview's context, its description cut to fit", async () => {
+  const { forge, calls } = stub({ "POST /repos/o/r/statuses/abc": "{}" });
+  await forge.setStatus("abc", { state: "pending", description: "x".repeat(200), url: "u" });
+  assert.deepEqual(calls[0].body, {
+    state: "pending",
+    description: "x".repeat(140),
+    context: "autoreview/deliberation",
+    target_url: "u",
+  });
+});

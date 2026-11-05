@@ -4,6 +4,7 @@ import { contextFor } from "./context.ts";
 import type { Forge, PullRequest } from "./forge.ts";
 import { changedFiles, type Checkout } from "./git.ts";
 import { fixRound } from "./fix.ts";
+import { Progress } from "./progress.ts";
 import { newChanges, recheck, reviewNew } from "./review.ts";
 import type { Answer, Review, Verification } from "./schemas.ts";
 import { status, type Status } from "./status.ts";
@@ -42,6 +43,8 @@ export interface Deliberation {
   heavy: boolean;
   /** Deliberate even without a label (as both roles), or on a draft or closed pull request. */
   force: boolean;
+  /** Where to watch this run, linked from its commit status. */
+  link?: string;
   log: (message: string) => void;
 }
 
@@ -56,6 +59,8 @@ export interface Run extends Deliberation {
   roles: Roles;
   /** Convention files in the folders the pull request changes, beyond the configured context. */
   conventions: string[];
+  /** The run's commit status, on the pull request's latest commit. */
+  progress: Progress;
 }
 
 export interface Outcome {
@@ -115,7 +120,29 @@ export async function deliberate(input: Deliberation): Promise<Outcome> {
     context: config.context,
     changed: changedFiles(await input.reviewer.diff(number)),
   });
-  const run: Run = { ...input, roles, conventions };
+  const progress = new Progress({
+    forge: roles.review ? input.reviewer : input.fixer,
+    sha: pr.headSha,
+    url: input.link,
+    log: input.log,
+  });
+  const run: Run = { ...input, roles, conventions, progress };
+
+  // Show the run as pending on the head until it ends, however it ends
+  await progress.working(roles.review ? "Reviewing" : "Answering threads");
+  try {
+    const result = await deliberateRounds(run, pr, outcome);
+    await progress.done(describeOutcome(result));
+    return result;
+  } catch (error) {
+    await progress.failed(`Failed: ${(error as Error).message}`);
+    throw error;
+  }
+}
+
+/** Review, then fix and verify in rounds, then summarise. */
+async function deliberateRounds(run: Run, pr: PullRequest, outcome: Outcome): Promise<Outcome> {
+  const { number, config, checkout, roles } = run;
 
   // Recheck what the author's new commits settle, and review them
   const changes = roles.review ? await newChanges(run, pr) : undefined;
@@ -133,6 +160,8 @@ export async function deliberate(input: Deliberation): Promise<Outcome> {
       break;
     }
     run.log(`round ${round}: ${waiting.length} open threads`);
+    const open = `${waiting.length} open thread${waiting.length === 1 ? "" : "s"}`;
+    await run.progress.working(`Round ${round}: ${open}`);
     rounds++;
 
     // The fixer answers, then the reviewer judges the answers
@@ -165,6 +194,18 @@ export async function deliberate(input: Deliberation): Promise<Outcome> {
   }
   await summarise(run, pr, outcome);
   return outcome;
+}
+
+/** One line on how a run ended, for its commit status. */
+function describeOutcome(outcome: Outcome): string {
+  if (outcome.stopped) {
+    return `Stopped: ${outcome.stopped}`;
+  }
+  if (outcome.skipped) {
+    return "Nothing new to review, and no open threads";
+  }
+  const decided = outcome.decided > 0 ? ` (${outcome.decided} decided for you to review)` : "";
+  return `Done: ${outcome.resolved} resolved${decided}, ${outcome.deferred} for the author`;
 }
 
 /** The roles a pull request's labels ask for; forcing one with neither plays both. */

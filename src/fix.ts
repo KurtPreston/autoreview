@@ -61,6 +61,7 @@ export async function fixRound(
     if (!(await run.checkout.push(pr.headBranch ?? pr.headRef))) {
       return `${pr.headRef} moved during the run; a newer run will continue`;
     }
+    await run.progress.working("Pushed fixes; verifying them", await run.checkout.head());
   }
   for (const reply of replies) {
     await answerThread(run, reply);
