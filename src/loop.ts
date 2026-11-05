@@ -1,10 +1,12 @@
+import { posix } from "node:path";
 import type { Usage } from "./agent.ts";
 import type { Config } from "./config.ts";
-import { contextFor } from "./context.ts";
+import { contextFor, type Convention } from "./context.ts";
 import type { Forge, PullRequest } from "./forge.ts";
 import { changedFiles, type Checkout } from "./git.ts";
 import { instructionsFor, type Instruction } from "./instructions.ts";
 import { fixRound } from "./fix.ts";
+import { folderContext, FolderConfigs } from "./folders.ts";
 import { Progress } from "./progress.ts";
 import { newChanges, recheck, reviewNew } from "./review.ts";
 import type { Answer, Review, Verification } from "./schemas.ts";
@@ -20,8 +22,8 @@ export { describe } from "./threads.ts";
 /** The three judgements a deliberation asks for, whoever makes them. */
 export interface Agents {
   review(task: string): Promise<Review>;
-  /** May edit files in the checkout. */
-  fix(task: string): Promise<Answer>;
+  /** May edit files in the checkout, but not run the `deny` commands. */
+  fix(task: string, deny?: string[]): Promise<Answer>;
   /** Must give a verdict for every key. */
   verify(task: string, keys: string[]): Promise<Verification>;
 }
@@ -65,10 +67,15 @@ export interface Roles {
 /** A deliberation under way, with the roles its labels ask for. */
 export interface Run extends Deliberation {
   roles: Roles;
-  /** Convention files in the folders the pull request changes, beyond the configured context. */
-  conventions: string[];
+  /**
+   * Convention files in the folders the pull request changes, beyond the configured context:
+   * found by name, or listed in a folder's config, each with the folder whose code it's for.
+   */
+  conventions: Convention[];
   /** `.github/instructions` files whose `applyTo` matches a file the pull request changes. */
   instructions: Instruction[];
+  /** Folders' own configs, read from the head the run started at. */
+  folders: FolderConfigs;
   /** The run's commit status, on the pull request's latest commit. */
   progress: Progress;
 }
@@ -158,7 +165,7 @@ export async function deliberate(input: Deliberation): Promise<Outcome> {
 
 /** Check the checkout and gather conventions, then deliberate in rounds. */
 async function deliberateFrom(
-  setUp: Omit<Run, "conventions" | "instructions">,
+  setUp: Omit<Run, "conventions" | "instructions" | "folders">,
   pr: PullRequest,
   outcome: Outcome,
 ): Promise<Outcome> {
@@ -168,16 +175,18 @@ async function deliberateFrom(
     throw new Error(`the checkout must be clean at the pull request's head ${pr.headSha}`);
   }
 
-  // Add convention files found in the folders the pull request changes, and the instruction
-  // files whose patterns match its files
+  // Add convention files found in, or listed by, the folders the pull request changes, and the
+  // instruction files whose patterns match its files
   const changed = changedFiles(await setUp.reviewer.diff(number));
-  const conventions = await contextFor({
-    dir: checkout.dir,
-    context: config.context,
-    changed,
-  });
+  const folders = new FolderConfigs(checkout, pr.headSha);
+  const found = await contextFor({ dir: checkout.dir, context: config.context, changed });
+  const conventions = folderContext(
+    await folders.for(changed),
+    config.context,
+    found.map((path) => ({ path, folder: posix.dirname(path) })),
+  );
   const instructions = await instructionsFor({ dir: checkout.dir, changed });
-  return deliberateRounds({ ...setUp, conventions, instructions }, pr, outcome);
+  return deliberateRounds({ ...setUp, conventions, instructions, folders }, pr, outcome);
 }
 
 /** Rejects with the signal's reason once it's aborted; never settles without a signal. */

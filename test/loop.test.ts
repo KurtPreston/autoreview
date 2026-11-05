@@ -491,7 +491,7 @@ test("agents are pointed at the convention files in the folders the pull request
   await nested.run();
   assert.match(
     nested.reviews[0],
-    /conventions: `AGENTS\.md`\. Then read[^.]*: `pkg\/AGENTS\.md`\./,
+    /conventions: `AGENTS\.md`\. Then read[^:]*: `pkg\/AGENTS\.md` for `pkg\/`\./,
   );
   assert.doesNotMatch(nested.reviews[0], /other\/AGENTS\.md/);
 });
@@ -517,7 +517,10 @@ test("a file moved unchanged into a folder points agents at that folder's conven
   assert.doesNotMatch(store.diff, /^\+\+\+ b\/pkg\/README\.md$/m);
 
   await moved.run();
-  assert.match(moved.reviews[0], /conventions: `AGENTS\.md`\. Then read[^.]*: `pkg\/AGENTS\.md`\./);
+  assert.match(
+    moved.reviews[0],
+    /conventions: `AGENTS\.md`\. Then read[^:]*: `pkg\/AGENTS\.md` for `pkg\/`\./,
+  );
 });
 
 test("agents are pointed at the instruction files whose patterns match the changes", async () => {

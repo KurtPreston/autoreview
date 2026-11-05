@@ -124,3 +124,40 @@ test("autoreview's commits carry its trailer, and only its pushes skip a run", a
   assert.equal(await ownPush(checkout, own, undefined), false);
   assert.equal(await ownPush(checkout, person, "synchronize"), false);
 });
+
+test("uncommitted changes list every path, both sides of a rename, and checks run in a folder", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "autoreview-git-"));
+  execFileSync("git", ["init", "--quiet", dir]);
+  mkdirSync(join(dir, "pkg"));
+  writeFileSync(join(dir, "pkg", "old name.ts"), "x\n");
+  writeFileSync(join(dir, "kept.ts"), "x\n");
+  execFileSync("git", ["-C", dir, "add", "-A"]);
+  execFileSync("git", [
+    "-C",
+    dir,
+    "-c",
+    "user.name=T",
+    "-c",
+    "user.email=t@e",
+    "commit",
+    "-qm",
+    "init",
+  ]);
+
+  // A staged rename, an edit, and an untracked file in a new folder
+  const checkout = new Checkout(dir);
+  await checkout.git("mv", "pkg/old name.ts", "pkg/new name.ts");
+  writeFileSync(join(dir, "kept.ts"), "y\n");
+  mkdirSync(join(dir, "fresh"));
+  writeFileSync(join(dir, "fresh", "a.ts"), "x\n");
+  assert.deepEqual((await checkout.changed()).sort(), [
+    "fresh/a.ts",
+    "kept.ts",
+    "pkg/new name.ts",
+    "pkg/old name.ts",
+  ]);
+  assert.equal(
+    (await checkout.check("pwd", { cwd: "pkg" })).output.trim().split("/").at(-1),
+    "pkg",
+  );
+});

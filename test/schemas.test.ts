@@ -118,12 +118,18 @@ test("only the conventions found in changed folders are scoped to their folders"
   const config = { ...DEFAULTS, context: ["AGENTS.md", "docs/style.md"] };
   const plain = common(pr as PullRequest, config);
   assert.match(plain, /conventions: `AGENTS\.md`, `docs\/style\.md`\. Follow/);
-  assert.doesNotMatch(plain, /under its folder/);
+  assert.doesNotMatch(plain, /folder named with it/);
 
-  const text = common(pr as PullRequest, config, { conventions: ["pkg/AGENTS.md"] });
+  // A folder config's context is for its folder's code, not the code beside the file
+  const text = common(pr as PullRequest, config, {
+    conventions: [
+      { path: "pkg/AGENTS.md", folder: "pkg" },
+      { path: "packages/api/docs/api.md", folder: "packages/api" },
+    ],
+  });
   assert.match(
     text,
-    /conventions: `AGENTS\.md`, `docs\/style\.md`\. Then read these, from the folders the pull request changes: `pkg\/AGENTS\.md`\. Each applies to the code under its folder/,
+    /conventions: `AGENTS\.md`, `docs\/style\.md`\. Then read these, from the folders the pull request changes, each for the code under the folder named with it[^:]*: `pkg\/AGENTS\.md` for `pkg\/`, `packages\/api\/docs\/api\.md` for `packages\/api\/`\./,
   );
 });
 

@@ -98,16 +98,39 @@ export class Checkout {
   }
 
   /**
-   * Run a shell command, returning whether it passed and the tail of its output. Aborting the
-   * signal stops the command and everything it started, then throws once they've stopped.
+   * Every path with uncommitted changes, including untracked files and both sides of a
+   * rename.
    */
-  check(command: string, signal?: AbortSignal): Promise<{ ok: boolean; output: string }> {
+  async changed(): Promise<string[]> {
+    // -z keeps paths unquoted; a rename's source follows its entry as a field of its own
+    const fields = (await this.git("status", "--porcelain", "-z", "--untracked-files=all"))
+      .split("\0")
+      .filter(Boolean);
+    const paths: string[] = [];
+    for (let i = 0; i < fields.length; i++) {
+      paths.push(fields[i].slice(3));
+      if (/[RC]/.test(fields[i].slice(0, 2))) {
+        paths.push(fields[++i]);
+      }
+    }
+    return paths;
+  }
+
+  /**
+   * Run a shell command in the checkout, or in `cwd` relative to it, returning whether it
+   * passed and the tail of its output. Aborting the signal stops the command and everything it
+   * started, then throws once they've stopped.
+   */
+  check(
+    command: string,
+    { cwd = ".", signal }: { cwd?: string; signal?: AbortSignal } = {},
+  ): Promise<{ ok: boolean; output: string }> {
     return new Promise((resolve, reject) => {
       if (signal?.aborted) {
         reject(signal.reason);
         return;
       }
-      const child = spawnGroup("sh", ["-c", command], { cwd: this.dir });
+      const child = spawnGroup("sh", ["-c", command], { cwd: join(this.dir, cwd) });
 
       // Keep only what the tail could show, and a character more to tell it was cut
       let stdout = "";

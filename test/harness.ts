@@ -55,6 +55,8 @@ export interface Setup {
   calls: { review: number; fix: number; verify: number };
   /** Each review's task, as the reviewer saw it. */
   reviews: string[];
+  /** The commands each fixer call was denied. */
+  denied: string[][];
   /** The scripted agents, which a test may replace. */
   agents: Agents;
   run: () => Promise<Outcome>;
@@ -99,12 +101,14 @@ export function setup(
   // Agents play back the script, counting calls
   const calls = { review: 0, fix: 0, verify: 0 };
   const reviews: string[] = [];
+  const denied: string[][] = [];
   const agents: Agents = {
     review: async (task) => {
       reviews.push(task);
       return script.review?.[calls.review++] ?? { summary: "Looks fine.", findings: [] };
     },
-    fix: async (task) => {
+    fix: async (task, deny = []) => {
+      denied.push(deny);
       const step = script.fix?.[calls.fix++];
       assert.ok(step, "unexpected fixer call");
       return step(work, task);
@@ -132,7 +136,7 @@ export function setup(
       signal: options.signal,
       log: () => {},
     });
-  return { store, work, origin, calls, reviews, agents, run };
+  return { store, work, origin, calls, reviews, denied, agents, run };
 }
 
 export const finding = {
