@@ -1,0 +1,31 @@
+# A pull request's review threads, a page at a time, for the GitHub forge.
+query ($owner: String!, $repo: String!, $number: Int!, $cursor: String) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $number) {
+      reviewThreads(first: 50, after: $cursor) {
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+        nodes {
+          id
+          isResolved
+          path
+          line
+          originalLine
+          diffSide
+          comments(first: 100) {
+            nodes {
+              databaseId
+              body
+              createdAt
+              author {
+                login
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
