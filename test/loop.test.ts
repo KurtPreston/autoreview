@@ -520,6 +520,31 @@ test("a file moved unchanged into a folder points agents at that folder's conven
   assert.match(moved.reviews[0], /conventions: `AGENTS\.md`\. Then read[^.]*: `pkg\/AGENTS\.md`\./);
 });
 
+test("agents are pointed at the instruction files whose patterns match the changes", async () => {
+  const scoped = setup({});
+  const { store, work } = scoped;
+
+  // The branch adds instructions for TypeScript and for CSS, and changes only TypeScript
+  const dir = join(work, ".github", "instructions");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "ts.instructions.md"), '---\napplyTo: "**/*.ts"\n---\nStrict.\n');
+  writeFileSync(join(dir, "css.instructions.md"), '---\napplyTo: "**/*.css"\n---\nFlat.\n');
+  writeFileSync(join(work, "b.ts"), "export const b = 1;\n");
+  git(work, "add", "-A");
+  git(work, "commit", "--quiet", "-m", "Add instructions and b");
+  git(work, "checkout", "--quiet", "--detach");
+  store.pr.headSha = git(work, "rev-parse", "HEAD");
+  store.diff = git(work, "diff", "main...HEAD");
+
+  // The review's task lists the TypeScript instructions, and not the CSS ones
+  await scoped.run();
+  assert.match(
+    scoped.reviews[0],
+    /Then read these instruction files[^:]*: `\.github\/instructions\/ts\.instructions\.md` for `\*\*\/\*\.ts`\./,
+  );
+  assert.doesNotMatch(scoped.reviews[0], /css\.instructions\.md` for/);
+});
+
 test("the commit status is pending while working, follows pushed fixes, and ends done", async () => {
   const seen: string[] = [];
   const clear = setup(

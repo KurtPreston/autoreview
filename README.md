@@ -129,6 +129,10 @@ On Gitea, runs start on pull request events only, not reviews, so the fixer answ
 
 The config is read from the pull request's head, so a pull request can change its own checks.
 
+### Instruction files
+
+Path-specific Copilot instructions, the `*.instructions.md` files under `.github/instructions`, are read too, with no configuration. Each one whose `applyTo` globs (comma-separated, relative to the root) match a file the pull request changes is listed for the agents, with its pattern, so they apply it to the files it covers. A file without `applyTo` applies to nothing. `excludeAgent: "code-review"` keeps a file from the reviewer, and `"cloud-agent"` keeps it from the fixer. The files are read from the pull request's head when a run starts.
+
 ## Standing instructions
 
 Autoreview runs the deliberation. It doesn't decide what conventions the agents follow. The agents read whatever Copilot CLI instructions and settings `COPILOT_HOME` holds (by default `~/.copilot`). To give them yours, install them in a workflow step before the autoreview step that exports `COPILOT_HOME`. For [dotagents](https://github.com/KurtPreston/dotagents), which also turns off attribution trailers:
@@ -161,7 +165,7 @@ Agent calls write their task and answer under `$TMPDIR/autoreview-<role>-*`, and
 
 ## Development
 
-The tool is TypeScript run directly by Node's type stripping (Node 22.18 or later), with no build step and no runtime dependencies. Avoid syntax that stripping rejects: enums, namespaces, and constructor parameter properties.
+The tool is TypeScript run directly by Node's type stripping (Node 22.20 or later), with no build step and no runtime dependencies. Avoid syntax that stripping rejects: enums, namespaces, and constructor parameter properties.
 
 ```sh
 npm ci

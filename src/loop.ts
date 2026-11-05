@@ -3,6 +3,7 @@ import type { Config } from "./config.ts";
 import { contextFor } from "./context.ts";
 import type { Forge, PullRequest } from "./forge.ts";
 import { changedFiles, type Checkout } from "./git.ts";
+import { instructionsFor, type Instruction } from "./instructions.ts";
 import { fixRound } from "./fix.ts";
 import { Progress } from "./progress.ts";
 import { newChanges, recheck, reviewNew } from "./review.ts";
@@ -66,6 +67,8 @@ export interface Run extends Deliberation {
   roles: Roles;
   /** Convention files in the folders the pull request changes, beyond the configured context. */
   conventions: string[];
+  /** `.github/instructions` files whose `applyTo` matches a file the pull request changes. */
+  instructions: Instruction[];
   /** The run's commit status, on the pull request's latest commit. */
   progress: Progress;
 }
@@ -155,7 +158,7 @@ export async function deliberate(input: Deliberation): Promise<Outcome> {
 
 /** Check the checkout and gather conventions, then deliberate in rounds. */
 async function deliberateFrom(
-  setUp: Omit<Run, "conventions">,
+  setUp: Omit<Run, "conventions" | "instructions">,
   pr: PullRequest,
   outcome: Outcome,
 ): Promise<Outcome> {
@@ -165,13 +168,16 @@ async function deliberateFrom(
     throw new Error(`the checkout must be clean at the pull request's head ${pr.headSha}`);
   }
 
-  // Add convention files found in the folders the pull request changes
+  // Add convention files found in the folders the pull request changes, and the instruction
+  // files whose patterns match its files
+  const changed = changedFiles(await setUp.reviewer.diff(number));
   const conventions = await contextFor({
     dir: checkout.dir,
     context: config.context,
-    changed: changedFiles(await setUp.reviewer.diff(number)),
+    changed,
   });
-  return deliberateRounds({ ...setUp, conventions }, pr, outcome);
+  const instructions = await instructionsFor({ dir: checkout.dir, changed });
+  return deliberateRounds({ ...setUp, conventions, instructions }, pr, outcome);
 }
 
 /** Rejects with the signal's reason once it's aborted; never settles without a signal. */

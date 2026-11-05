@@ -3,7 +3,7 @@ import type { PullRequest } from "./forge.ts";
 import { diffLines } from "./git.ts";
 import type { Run } from "./loop.ts";
 import { compose, type Marker } from "./markers.ts";
-import { clip, common, modeText, render } from "./prompts.ts";
+import { clip, common, guidanceFor, modeText, render } from "./prompts.ts";
 import { postFindings } from "./review.ts";
 import { opener, status } from "./status.ts";
 import { decisionText, describe, DIFF_LIMIT, finalNote, tidy } from "./threads.ts";
@@ -20,7 +20,7 @@ export async function verifyRound(run: Run, pr: PullRequest, start: string): Pro
   const changes = start === end ? "" : await run.checkout.diff(start, end);
   const task = render("verify", {
     ...modeText(run.config),
-    common: common(pr, run.config, run.conventions),
+    common: common(pr, run.config, guidanceFor(run, "reviewer")),
     threads: waiting
       .map((thread) => `### ${thread.key}\n\n${finalNote(run, thread)}${describe(thread)}`)
       .join("\n\n"),
