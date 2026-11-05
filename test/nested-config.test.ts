@@ -265,6 +265,51 @@ test("with configs from the base, a pull request can't drop the checks its fixes
   assert.equal(fromBase.deferred, 1);
 });
 
+/** Run a pull request that moves pkg/foo to lib/foo without its file, reading configs from its base or not. */
+async function movedByPullRequest(trustBase: boolean) {
+  const tasks: string[] = [];
+  const fix = (dir: string, task: string): Answer => {
+    tasks.push(task);
+    write(dir, { "lib/foo/b.ts": "export const bee = 1;\n", "lib/foo/ok.txt": "" });
+    return { action: "fix", body: "Renamed it.", commit: "Rename b" };
+  };
+  const seed = (store: Store) => {
+    seedThread(store);
+    Object.assign(store.threads[0], { key: "lib/foo/b.ts:+1", path: "lib/foo/b.ts" });
+  };
+  const nested = monorepo([fix, fix], seed, { trustBase });
+  const { store, work } = nested;
+
+  // main has code in pkg/foo, which the pull request moves while dropping its file
+  git(work, "checkout", "--quiet", "main");
+  write(work, { "pkg/foo/a.ts": "export const a = 'a fairly long line of code';\n" });
+  git(work, "add", "-A");
+  git(work, "commit", "--quiet", "-m", "Add a");
+  git(work, "checkout", "--quiet", "ferns");
+  git(work, "merge", "--quiet", "main");
+  mkdirSync(join(work, "lib"));
+  git(work, "mv", "pkg/foo", "lib/foo");
+  git(work, "rm", "--quiet", "-f", "lib/foo/.autoreview.json");
+  git(work, "commit", "--quiet", "-m", "Move foo and drop its checks");
+  git(work, "checkout", "--quiet", "--detach");
+  store.pr.headSha = git(work, "rev-parse", "HEAD");
+  store.pr.baseSha = git(work, "rev-parse", "main");
+  store.diff = git(work, "diff", "main...HEAD");
+  return { outcome: await nested.run(), tasks };
+}
+
+test("with configs from the base, a pull request can't drop checks by moving their folder", async () => {
+  // Read from the head, the moved folder has no checks, so the fix goes through
+  const fromHead = await movedByPullRequest(false);
+  assert.equal(fromHead.outcome.commits.length, 1);
+
+  // Read from the base, the fix to the moved code fails pkg/foo's checks, and is deferred
+  const fromBase = await movedByPullRequest(true);
+  assert.match(fromBase.tasks[1], /pkg\/foo is gone[^]*\(test -f ok\.txt\)/);
+  assert.deepEqual(fromBase.outcome.commits, []);
+  assert.equal(fromBase.outcome.deferred, 1);
+});
+
 /** Move pkg/foo, its file included, to lib/foo, editing b.ts there, and write any other files. */
 function moveFoo(tasks: string[], files: Record<string, string> = {}) {
   return (dir: string, task: string): Answer => {

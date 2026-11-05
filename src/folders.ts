@@ -1,6 +1,6 @@
 /** Folders' own `.autoreview.json` files, for the code under them. */
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, posix } from "node:path";
 import { CONFIG_FILE, ConfigError, parseFolderConfig, type FolderConfig } from "./config.ts";
 import { foldersOf, type Convention } from "./context.ts";
 import type { Checkout } from "./git.ts";
@@ -57,6 +57,47 @@ export class FolderConfigs {
       found.push(await this.#parsed.get(key)!);
     }
     return found;
+  }
+
+  /**
+   * The starting files of folders that are gone, no folder having taken their file word for
+   * word, whose code moved to where some of the paths lie. Which checks that code answers to
+   * can't be told, so a fix there is held to the lost folder's.
+   */
+  async stranded(paths: string[]): Promise<FolderSet[]> {
+    const taken = new Set((await this.#moves()).values());
+    const lost = (await this.#folders()).filter(
+      (folder) => !taken.has(folder) && !existsSync(join(this.#checkout.dir, folder)),
+    );
+    if (lost.length === 0) {
+      return [];
+    }
+
+    // Find where each lost folder's files went, from the starting commit to the working tree
+    const fields = (
+      await this.#checkout.git("diff", "-M", "--name-status", "-z", this.#sha, "--")
+    ).split("\0");
+    const stranded = new Set<string>();
+    for (let i = 0; i < fields.length; i++) {
+      const status = fields[i];
+      if (!/^[RC]/.test(status)) {
+        i++;
+        continue;
+      }
+      const [from, to] = [fields[i + 1], fields[i + 2]];
+      i += 2;
+      if (status.startsWith("C")) {
+        continue;
+      }
+      for (const folder of lost.filter((folder) => from.startsWith(`${folder}/`))) {
+        const rest = from.slice(folder.length);
+        const where = to.endsWith(rest) ? to.slice(0, -rest.length) : posix.dirname(to);
+        if (paths.some((path) => where === "." || path.startsWith(`${where}/`))) {
+          stranded.add(folder);
+        }
+      }
+    }
+    return this.#configs(lost.filter((folder) => stranded.has(folder)));
   }
 
   /** The folders with a file in the starting commit, shallowest first. */
