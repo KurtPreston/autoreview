@@ -6,6 +6,7 @@ import type { Forge, PullRequest } from "./forge.ts";
 import { changedFiles, type Checkout } from "./git.ts";
 import { fixRound } from "./fix.ts";
 import { folderContext, FolderConfigs } from "./folders.ts";
+import { postNotice } from "./notice.ts";
 import { Progress } from "./progress.ts";
 import { newChanges, recheck, reviewNew } from "./review.ts";
 import type { Answer, Review, Verification } from "./schemas.ts";
@@ -52,6 +53,8 @@ export interface Deliberation {
   configSha?: string;
   /** Where to watch this run, linked from its commit status. */
   link?: string;
+  /** An operator's text, such as who runs autoreview, posted once on a pull request it acts on. */
+  notice?: string;
   /** Stops the run when aborted, as when the job is cancelled or times out. */
   signal?: AbortSignal;
   /**
@@ -128,6 +131,9 @@ export async function deliberate(input: Deliberation): Promise<Outcome> {
       ...outcome,
       skipped: "fixes can't be pushed: the head isn't a branch of this repository",
     };
+  }
+  if (input.notice) {
+    await postNotice(input.reviewer, number, input.notice);
   }
 
   // Show the run as pending on the head until it ends, however it ends

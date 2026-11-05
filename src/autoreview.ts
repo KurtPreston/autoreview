@@ -11,7 +11,6 @@ import { Checkout } from "./git.ts";
 import { forgeKind, forges } from "./forges.ts";
 import { copilotAgents, deliberate } from "./loop.ts";
 import { followCheckout, MemoryForge, snapshot, type Store } from "./memory.ts";
-import { postNotice } from "./notice.ts";
 import { parseRemote, type Remote } from "./remote.ts";
 import { dispatchAfterPush, ownPush } from "./trigger.ts";
 
@@ -115,11 +114,6 @@ async function main(): Promise<void> {
         ? await loadConfigAt(checkout, head.baseSha)
         : await loadConfig(checkout.dir);
 
-    // An operator's notice is posted once, on pull requests autoreview will act on
-    const optedIn = [config.reviewLabel, config.fixLabel].some((l) => head.labels.includes(l));
-    if (values.notice && (optedIn || values.force)) {
-      await postNotice(roles.reviewer, pr, values.notice);
-    }
     const usage = {};
     const log = (message: string) => console.error(`autoreview: ${message}`);
     const outcome = await untilStopped((signal) =>
@@ -135,6 +129,7 @@ async function main(): Promise<void> {
         force: values.force,
         configSha: trusted ? head.baseSha : undefined,
         link: runLink(remote),
+        notice: values.notice,
         signal,
         stopGraceMs: STOP_GRACE_MS - 1000,
         log,
