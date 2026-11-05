@@ -62,6 +62,8 @@ A run that deliberated ends with a summary comment whose hidden marker records t
 - `author-review` present: nothing blocks, but decisions are listed for review.
 - Neither: the pull request is clean.
 
+While a run works, it shows as the commit status `autoreview/deliberation` on the pull request's latest commit. The status is pending while the run reviews or fixes, moves to each commit the run pushes, and ends as success with the run's counts, or as error when the run fails or the job is cancelled or times out. On GitHub it links to the run. Setting it needs the workflow's `statuses: write` permission; without that, the run logs a note and carries on. A branch rule can require the status, but only pull requests with a label get one. The run's log notes when each reviewer, fixer or verifier call starts and ends, and every 30 seconds while one is still working.
+
 ## Setup on GitHub
 
 Nothing to create: both roles post and push as `github-actions[bot]` with the workflow's own token, and each comment names its role. For each repository:

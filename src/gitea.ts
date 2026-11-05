@@ -1,5 +1,5 @@
-import type { Comment, Forge, NewComment, PullRequest, Thread } from "./forge.ts";
-import { threadKey } from "./forge.ts";
+import type { Comment, CommitStatus, Forge, NewComment, PullRequest, Thread } from "./forge.ts";
+import { STATUS_CONTEXT, threadKey } from "./forge.ts";
 
 /** Where a repository lives on a Gitea server, and who is asking. */
 export interface GiteaOptions {
@@ -192,6 +192,15 @@ export class Gitea implements Forge {
   async dispatch(workflow: string, ref: string): Promise<void> {
     const path = `${this.#repo}/actions/workflows/${encodeURIComponent(workflow)}/dispatches`;
     await this.#request("POST", path, { ref });
+  }
+
+  async setStatus(sha: string, status: CommitStatus): Promise<void> {
+    await this.#request("POST", `${this.#repo}/statuses/${sha}`, {
+      state: status.state,
+      description: status.description.slice(0, 140),
+      context: STATUS_CONTEXT,
+      target_url: status.url,
+    });
   }
 
   /** Create a repository label unless it exists. Used when enabling a repository. */

@@ -64,9 +64,11 @@ export async function fixRound(
 
   // Push before replying, so the commits the replies cite exist
   if (run.push && replies.some((r) => r.commit)) {
+    const head = await run.checkout.head();
     if (!(await run.checkout.push(pr.headBranch ?? pr.headRef))) {
       return `${pr.headRef} moved during the run; a newer run will continue`;
     }
+    await run.progress.working("Pushed fixes; verifying them", head);
   }
   for (const reply of replies) {
     await answerThread(run, reply);
@@ -182,7 +184,7 @@ export async function failingCheck(run: Run): Promise<string | undefined> {
       return `${folder} is gone, and no folder took its ${CONFIG_FILE} unchanged, so its checks (${commands}) couldn't run. Keep the folder, or move it whole with its ${CONFIG_FILE} unchanged.`;
     }
     for (const { command } of checks) {
-      const result = await run.checkout.check(command, { cwd: folder });
+      const result = await run.checkout.check(command, { cwd: folder, signal: run.signal });
       if (!result.ok) {
         const where = folder === "." ? "" : `(in ${folder}) `;
         return `$ ${where}${command}\n${result.output}`;

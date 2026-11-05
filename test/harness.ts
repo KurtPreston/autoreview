@@ -57,12 +57,14 @@ export interface Setup {
   reviews: string[];
   /** The commands each fixer call was denied. */
   denied: string[][];
+  /** The scripted agents, which a test may replace. */
+  agents: Agents;
   run: () => Promise<Outcome>;
 }
 
 export function setup(
   script: Script,
-  options: { config?: object; seed?: (store: Store) => void } = {},
+  options: { config?: object; seed?: (store: Store) => void; signal?: AbortSignal } = {},
 ): Setup {
   const { origin, work } = repository();
   const store: Store = {
@@ -122,9 +124,10 @@ export function setup(
       push: true,
       heavy: false,
       force: false,
+      signal: options.signal,
       log: () => {},
     });
-  return { store, work, origin, calls, reviews, denied, run };
+  return { store, work, origin, calls, reviews, denied, agents, run };
 }
 
 export const finding = {

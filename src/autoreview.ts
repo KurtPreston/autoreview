@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { loadConfig } from "./config.ts";
 import { Checkout } from "./git.ts";
-import { forges } from "./forges.ts";
+import { forgeKind, forges } from "./forges.ts";
 import { copilotAgents, deliberate } from "./loop.ts";
 import { MemoryForge, snapshot } from "./memory.ts";
 import { parseRemote, type Remote } from "./remote.ts";
@@ -91,18 +91,24 @@ async function main(): Promise<void> {
     }
     const config = await loadConfig(checkout.dir);
     const usage = {};
-    const outcome = await deliberate({
-      number: pr,
-      config,
-      checkout,
-      ...roles,
-      agents: copilotAgents({ config, checkout, usage }),
-      usage,
-      push: !dryRun,
-      heavy: values.heavy,
-      force: values.force,
-      log: (message) => console.error(`autoreview: ${message}`),
-    });
+    const log = (message: string) => console.error(`autoreview: ${message}`);
+    const outcome = await untilStopped((signal) =>
+      deliberate({
+        number: pr,
+        config,
+        checkout,
+        ...roles,
+        agents: copilotAgents({ config, checkout, usage, log, signal }),
+        usage,
+        push: !dryRun,
+        heavy: values.heavy,
+        force: values.force,
+        link: runLink(remote),
+        signal,
+        stopGraceMs: STOP_GRACE_MS - 1000,
+        log,
+      }),
+    );
     console.error(`autoreview: ${JSON.stringify(outcome)}`);
 
     // Pushes with a workflow's own token start no checks, so start the configured ones
@@ -117,6 +123,42 @@ async function main(): Promise<void> {
   } finally {
     await cleanup();
   }
+}
+
+/** How long a cancelled run has to wind down before the process exits. */
+const STOP_GRACE_MS = 5000;
+
+/**
+ * Run work that stops when the job is cancelled or times out: the runner sends SIGINT, then
+ * SIGTERM. The work gets a moment to stop what it started and mark its commit status, then
+ * the process exits.
+ */
+async function untilStopped<T>(work: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  const stop = new AbortController();
+  const handlers = (["SIGINT", "SIGTERM"] as const).map((name) => {
+    const handler = () => {
+      stop.abort(new Error(`cancelled by ${name}`));
+      setTimeout(() => process.exit(name === "SIGINT" ? 130 : 143), STOP_GRACE_MS).unref();
+    };
+    process.once(name, handler);
+    return [name, handler] as const;
+  });
+  try {
+    return await work(stop.signal);
+  } finally {
+    for (const [name, handler] of handlers) {
+      process.off(name, handler);
+    }
+  }
+}
+
+/** The GitHub Actions run this is, for the commit status to link to. */
+function runLink(remote: Remote): string | undefined {
+  const { GITHUB_SERVER_URL: server, GITHUB_REPOSITORY: name, GITHUB_RUN_ID: id } = process.env;
+  if (forgeKind(remote) !== "github" || !server || !name || !id) {
+    return undefined;
+  }
+  return `${server.replace(/\/$/, "")}/${name}/actions/runs/${id}`;
 }
 
 /** The repository's server and name: from the CI environment, or the clone's origin. */

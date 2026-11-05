@@ -74,4 +74,5 @@ runs:
 
         args=(run --pr "$PR" --checkout "$GITHUB_WORKSPACE")
         if [[ "$HEAVY" == "true" ]]; then args+=(--heavy); fi
-        node --use-system-ca "$tool/src/autoreview.ts" "${args[@]}"
+        # exec, so the runner's cancellation signals reach node rather than stopping only bash
+        exec node --use-system-ca "$tool/src/autoreview.ts" "${args[@]}"

@@ -1,7 +1,7 @@
 import "./scratch.ts";
 import assert from "node:assert/strict";
-import { execFile, execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { execFile, execFileSync, spawn } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -126,4 +126,54 @@ test("on GitHub, a personal token commits as its user", async () => {
   const config = await setupOnGitHub({ login: "kurt", id: 7 });
   assert.equal(config("user.name"), "kurt");
   assert.equal(config("user.email"), "7+kurt@users.noreply.github.com");
+});
+
+test("cancelling the Deliberate step signals the tool, not only its shell", async () => {
+  // The step's script, as the runner runs it
+  const step = action.slice(action.indexOf("- name: Deliberate"));
+  const lines = step
+    .slice(step.indexOf("run: |") + "run: |".length)
+    .split("\n")
+    .slice(1);
+  const script = lines
+    .filter((line) => line.startsWith("        ") || line.trim() === "")
+    .map((line) => line.slice(8))
+    .join("\n");
+  const dir = mkdtempSync(join(tmpdir(), "autoreview-action-"));
+  writeFileSync(join(dir, "step.sh"), script);
+
+  // A stand-in for node that notes the signal it gets
+  const bin = join(dir, "bin");
+  mkdirSync(bin);
+  const mark = join(dir, "mark");
+  writeFileSync(
+    join(bin, "node"),
+    [
+      "#!/usr/bin/env bash",
+      `trap 'echo stopped > "${mark}"; exit 143' TERM`,
+      `echo ready > "${mark}.ready"`,
+      "for _ in $(seq 200); do sleep 0.05; done",
+    ].join("\n"),
+    { mode: 0o755 },
+  );
+
+  const shell = spawn("bash", ["--noprofile", "--norc", "-eo", "pipefail", join(dir, "step.sh")], {
+    env: {
+      ...process.env,
+      PATH: `${bin}:${process.env.PATH}`,
+      GITHUB_ACTION_PATH: HERE,
+      GITHUB_WORKSPACE: dir,
+      RUNNER_TEMP: dir,
+      PR: "7",
+      HEAVY: "false",
+    },
+    stdio: "ignore",
+  });
+  const exited = new Promise((resolve) => shell.once("exit", resolve));
+  while (!existsSync(`${mark}.ready`)) {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  shell.kill("SIGTERM");
+  await exited;
+  assert.ok(existsSync(mark), "node didn't receive the signal");
 });
