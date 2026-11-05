@@ -85,7 +85,8 @@ export class FolderConfigs {
 
   /**
    * The starting commit's folders that the branch had at its head or where it forked from that
-   * commit. The rest were added by the base alone, so the branch can't have lost them.
+   * commit, with or without a file of their own there. The rest were added by the base alone, so
+   * the branch can't have lost them.
    */
   async #branchFolders(): Promise<Set<string>> {
     this.#branch ??= (async () => {
@@ -94,10 +95,16 @@ export class FolderConfigs {
         return new Set(starting.keys());
       }
       const fork = (await this.#checkout.git("merge-base", this.#sha, this.#head)).trim();
-      const had = [await this.#tree(this.#head), await this.#tree(fork)];
-      return new Set([...starting.keys()].filter((folder) => had.some((tree) => tree.has(folder))));
+      const had = [await this.#directories(this.#head), await this.#directories(fork)];
+      return new Set([...starting.keys()].filter((folder) => had.some((dirs) => dirs.has(folder))));
     })();
     return this.#branch;
+  }
+
+  /** Every folder in a commit, whether or not it has a file. */
+  async #directories(commit: string): Promise<Set<string>> {
+    const listing = await this.#checkout.git("ls-tree", "-r", "-d", "-z", "--name-only", commit);
+    return new Set(listing.split("\0").filter(Boolean));
   }
 
   /** The folders with a file in the starting commit, shallowest first. */

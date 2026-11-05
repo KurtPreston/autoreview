@@ -289,6 +289,48 @@ test("with configs from the base, a folder only the base added since the branch 
   assert.equal(outcome.resolved, 1);
 });
 
+test("with configs from the base, a folder the branch moved before the base gave it a file keeps its checks", async () => {
+  const tasks: string[] = [];
+  const fix = (dir: string, task: string): Answer => {
+    tasks.push(task);
+    write(dir, { "lib/bar/a.ts": "export const z = 2;\n", "lib/bar/ok.txt": "" });
+    return { action: "fix", body: "Renamed it.", commit: "Rename a" };
+  };
+  const seed = (store: Store) => {
+    seedThread(store);
+    Object.assign(store.threads[0], { key: "lib/bar/a.ts:+1", path: "lib/bar/a.ts" });
+  };
+  const nested = monorepo([fix, fix], seed, { trustBase: true });
+  const { store, work } = nested;
+
+  // pkg/bar has code but no file where the branch forks; the branch moves it to lib/bar
+  git(work, "checkout", "--quiet", "main");
+  write(work, { "pkg/bar/a.ts": "export const a = 'a fairly long line of code';\n" });
+  git(work, "add", "-A");
+  git(work, "commit", "--quiet", "-m", "Add bar");
+  git(work, "checkout", "--quiet", "ferns");
+  git(work, "merge", "--quiet", "main");
+  mkdirSync(join(work, "lib"));
+  git(work, "mv", "pkg/bar", "lib/bar");
+  git(work, "commit", "--quiet", "-m", "Move bar");
+  const head = git(work, "rev-parse", "HEAD");
+
+  // Then main gives pkg/bar checks of its own
+  git(work, "checkout", "--quiet", "main");
+  write(work, { "pkg/bar/.autoreview.json": '{"checks":["test -f ok.txt"]}' });
+  git(work, "add", "-A");
+  git(work, "commit", "--quiet", "-m", "Check bar");
+  git(work, "checkout", "--quiet", "--detach", head);
+  store.pr.headSha = head;
+  store.pr.baseSha = git(work, "rev-parse", "main");
+  store.diff = git(work, "diff", "main...HEAD");
+
+  const outcome = await nested.run();
+  assert.match(tasks[1], /pkg\/bar is gone[^]*\(test -f ok\.txt\)/);
+  assert.deepEqual(outcome.commits, []);
+  assert.equal(outcome.deferred, 1);
+});
+
 /**
  * Run a pull request that moves pkg/foo, a.ts its only file on main, to lib/foo without its
  * file, reading configs from its base or not. Its fixes write `files`. With `overwrite`, main
