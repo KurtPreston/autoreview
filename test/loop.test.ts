@@ -459,6 +459,38 @@ test("with only autoreview, a finding someone else resolves unsettled is reopene
   assert.ok(reviewOnly.store.pr.labels.includes("needs-author"));
 });
 
+test("with only autoreview, a reopening cut short keeps its reason and finishes next run", async () => {
+  const reviewOnly = setup(
+    { review: [{ summary: "One problem.", findings: [finding] }], verify: [verdict("defer")] },
+    { seed: (store) => (store.pr.labels = ["autoreview"]) },
+  );
+  await reviewOnly.run();
+  closeElsewhere(reviewOnly, "n * 3");
+
+  // The reason is posted, then reopening fails
+  const forge = MemoryForge.prototype;
+  const original = forge.reopen;
+  forge.reopen = async () => {
+    throw new Error("502 Bad Gateway");
+  };
+  try {
+    await assert.rejects(reviewOnly.run(), /502 Bad Gateway/);
+  } finally {
+    forge.reopen = original;
+  }
+  const [thread] = reviewOnly.store.threads;
+  assert.equal(thread.resolved, true);
+  assert.match(thread.comments.at(-1)?.body ?? "", /reopened[\s\S]*Verdict: defer/);
+
+  // The retry reopens it without asking again or repeating the reason
+  const comments = thread.comments.length;
+  const later = await reviewOnly.run();
+  assert.equal(reviewOnly.calls.verify, 1);
+  assert.equal(thread.resolved, false);
+  assert.equal(thread.comments.length, comments);
+  assert.equal(later.deferred, 1);
+});
+
 test("with only autoreview, a finding someone else settles stays resolved, checked once", async () => {
   const reviewOnly = setup(
     { review: [{ summary: "One problem.", findings: [finding] }], verify: [verdict("resolved")] },

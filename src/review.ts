@@ -52,7 +52,12 @@ export async function recheck(
   { last, diff }: { last: string; diff: string },
 ): Promise<void> {
   const threads = await run.reviewer.threads(run.number);
-  const closed = threads.filter((t) => closedEarly(run, t));
+  const closed = threads.filter((t) => closedEarly(run, t) && !reopening(t));
+
+  // A reopening cut short after its reason was posted only needs the thread reopened
+  for (const thread of threads.filter((t) => closedEarly(run, t) && reopening(t))) {
+    await run.reviewer.reopen(thread);
+  }
   const deferred = [...threads.filter((t) => forAuthor(run, t)), ...closed];
   if (deferred.length === 0) {
     return;
@@ -106,15 +111,24 @@ export async function recheck(
 const CLOSED =
   "**Resolved by someone else before the reviewer agreed.** Judge the current code, not only the changes below.\n\n";
 
-/** Reopen a thread someone closed before it was settled, saying why. */
+/**
+ * Reopen a thread someone closed before it was settled, saying why. The reason goes first, so
+ * a run that stops between the two leaves it on record, and the next run finishes reopening.
+ */
 async function reopen(run: Run, thread: Thread, reason: string): Promise<void> {
   const marker: Marker = { role: "reviewer", kind: "verdict", value: "follow-up" };
-  await run.reviewer.reopen(thread);
   await run.reviewer.reply(
     run.number,
     thread,
     compose(`**Autoreview reviewer** · ${run.config.reviewer.model} · reopened`, reason, marker),
   );
+  await run.reviewer.reopen(thread);
+}
+
+/** Whether a closed thread's latest comment is the reviewer's reason for reopening it. */
+function reopening(thread: Thread): boolean {
+  const last = readMarker(thread.comments.at(-1)?.body ?? "");
+  return last?.role === "reviewer" && last.kind === "verdict" && last.value === "follow-up";
 }
 
 /** Review the changes since the last run, or the whole pull request on the first. */
