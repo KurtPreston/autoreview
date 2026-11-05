@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { frontmatter, instructionsFor, instructionsForRole } from "../src/instructions.ts";
+import { frontmatter, globs, instructionsFor, instructionsForRole } from "../src/instructions.ts";
 
 /** A checkout holding the given files and their text. */
 async function checkout(files: Record<string, string>): Promise<string> {
@@ -102,4 +102,24 @@ test("commented and multiline values still match and exclude", async () => {
     { path: `${DIR}/ts.instructions.md`, applyTo: "**/*.ts", excludes: "reviewer" },
     { path: `${DIR}/web.instructions.md`, applyTo: "**/*.css,**/*.html", excludes: "fixer" },
   ]);
+});
+
+test("applyTo splits at commas outside braces and brackets", async () => {
+  assert.deepEqual(globs("**/*.{ts,tsx}, docs/**"), ["**/*.{ts,tsx}", "docs/**"]);
+  assert.deepEqual(globs("a/{b,{c,d}}/*.md,[,x]*,[],]y,\\,z"), [
+    "a/{b,{c,d}}/*.md",
+    "[,x]*",
+    "[],]y",
+    "\\,z",
+  ]);
+  assert.deepEqual(globs("a[b, c"), ["a[b", "c"]);
+
+  const dir = await checkout({
+    [`${DIR}/ts.instructions.md`]: '---\napplyTo: "**/*.{ts,tsx}, docs/**"\n---\n',
+  });
+  for (const file of ["src/a.ts", "src/b.tsx", "docs/c.md"]) {
+    assert.deepEqual(await instructionsFor({ dir, changed: [file] }), [
+      { path: `${DIR}/ts.instructions.md`, applyTo: "**/*.{ts,tsx},docs/**" },
+    ]);
+  }
 });

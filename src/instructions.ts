@@ -47,10 +47,7 @@ export async function instructionsFor({
   const found: Instruction[] = [];
   for (const path of paths) {
     const meta = frontmatter(await readFile(join(dir, path), "utf8"));
-    const patterns = (meta.applyTo ?? "")
-      .split(",")
-      .map((p) => p.trim())
-      .filter(Boolean);
+    const patterns = globs(meta.applyTo ?? "");
     if (patterns.some((pattern) => changed.some((file) => matchesGlob(file, pattern)))) {
       const excludes = EXCLUDED[(meta.excludeAgent ?? "").trim()];
       found.push({
@@ -61,6 +58,36 @@ export async function instructionsFor({
     }
   }
   return found;
+}
+
+/** The globs in a comma-separated list, keeping the commas inside braces and brackets. */
+export function globs(list: string): string[] {
+  const patterns: string[] = [];
+  let [current, braces, bracket] = ["", 0, false];
+  for (let index = 0; index < list.length; index++) {
+    const char = list[index];
+    if (char === "\\" && index + 1 < list.length) {
+      current += char + list[++index];
+      continue;
+    }
+    if (bracket) {
+      // A `]` right after the opening `[`, `[!` or `[^` is a member, not the end
+      bracket = char !== "]" || /\[[!^]?$/.test(current);
+    } else if (char === "[") {
+      bracket = list.includes("]", index + 2);
+    } else if (char === "{") {
+      braces++;
+    } else if (char === "}" && braces > 0) {
+      braces--;
+    } else if (char === "," && braces === 0) {
+      patterns.push(current);
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+  patterns.push(current);
+  return patterns.map((pattern) => pattern.trim()).filter(Boolean);
 }
 
 /** The instruction files a role reads: all but those excluded from it. */
