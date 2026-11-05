@@ -59,6 +59,24 @@ export class FolderConfigs {
     return found;
   }
 
+  /**
+   * The starting files of folders that are gone, no folder having taken their file word for
+   * word, when some paths changed. Their code may have moved anywhere, even over files that
+   * were already there and rewritten past recognition, so which checks it answers to can't be
+   * told, and a fix to any path is held to every lost folder's.
+   */
+  async stranded(paths: string[]): Promise<FolderSet[]> {
+    if (paths.length === 0) {
+      return [];
+    }
+    const taken = new Set((await this.#moves()).values());
+    return this.#configs(
+      (await this.#folders()).filter(
+        (folder) => !taken.has(folder) && !existsSync(join(this.#checkout.dir, folder)),
+      ),
+    );
+  }
+
   /** The folders with a file in the starting commit, shallowest first. */
   async #folders(): Promise<string[]> {
     const folders = [...(await this.#tree(this.#sha)).keys()];

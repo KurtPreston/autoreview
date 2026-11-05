@@ -158,14 +158,19 @@ export function runnable(run: Run, sets: CheckSet[]): Check[] {
 /**
  * The first check that fails, with its output, or undefined when all pass. Only the root's
  * checks and those of the folders the fix changed run, each in its own folder. A folder the
- * fix moved is checked where it went; one whose new place can't be found fails.
+ * fix moved is checked where it went; one whose new place can't be found fails, as does any
+ * fix while a folder is gone without its file landing whole elsewhere.
  */
 export async function failingCheck(run: Run): Promise<string | undefined> {
   const changed = await run.checkout.changed();
   if (changed.length === 0) {
     return undefined;
   }
-  const sets = await checkSets(run, changed);
+  const own = await checkSets(run, changed);
+  const stranded = (await run.folders.stranded(changed)).filter(
+    ({ folder }) => !own.some((set) => set.folder === folder),
+  );
+  const sets = [...own, ...stranded];
   for (const set of sets) {
     const checks = runnable(run, [set]);
     const { folder, source } = set;

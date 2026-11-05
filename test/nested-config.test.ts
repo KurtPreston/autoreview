@@ -130,8 +130,9 @@ test("folder files are read from the starting commit, shallowest first, for the 
 function monorepo(
   fixes: ((dir: string, task: string) => Answer)[],
   seed: (store: Store) => void = seedThread,
+  options: { trustBase?: boolean } = {},
 ): Setup {
-  const nested = setup({ fix: fixes, verify: [verdict("resolved")] }, { seed });
+  const nested = setup({ fix: fixes, verify: [verdict("resolved")] }, { seed, ...options });
   const { store, work } = nested;
 
   // main gains the folder configs; other/ fails every check, but nothing touches it
@@ -238,6 +239,130 @@ test("a fix can't loosen its own folder's checks", async () => {
   assert.equal(nested.calls.fix, 2);
   assert.deepEqual(outcome.commits, []);
   assert.equal(outcome.deferred, 1);
+});
+
+/** Run a pull request whose own commit drops pkg/foo's checks, reading configs from its base or not. */
+async function loosenedByPullRequest(trustBase: boolean) {
+  const tasks: string[] = [];
+  const nested = monorepo([fixB(tasks), fixB(tasks)], seedThread, {
+    trustBase,
+  });
+  const { store, work } = nested;
+  write(work, { "pkg/foo/.autoreview.json": "{}" });
+  git(work, "commit", "--quiet", "-am", "Drop the checks");
+  store.pr.headSha = git(work, "rev-parse", "HEAD");
+  store.pr.baseSha = git(work, "rev-parse", "main");
+  store.diff = git(work, "diff", "main...HEAD");
+  return nested.run();
+}
+
+test("with configs from the base, a pull request can't drop the checks its fixes answer to", async () => {
+  // Read from the head, the pull request's own file lets a fix without ok.txt through
+  const fromHead = await loosenedByPullRequest(false);
+  assert.equal(fromHead.commits.length, 1);
+
+  // Read from the base, the fix still answers to the check, fails it twice, and is deferred
+  const fromBase = await loosenedByPullRequest(true);
+  assert.deepEqual(fromBase.commits, []);
+  assert.equal(fromBase.deferred, 1);
+});
+
+/**
+ * Run a pull request that moves pkg/foo, a.ts its only file on main, to lib/foo without its
+ * file, reading configs from its base or not. Its fixes write `files`. With `overwrite`, main
+ * already has a lib/foo/a.ts, which the pull request overwrites with pkg/foo's.
+ */
+async function movedByPullRequest(
+  trustBase: boolean,
+  files: Record<string, string> = {
+    "lib/foo/b.ts": "export const bee = 1;\n",
+    "lib/foo/ok.txt": "",
+  },
+  { overwrite = false } = {},
+) {
+  const tasks: string[] = [];
+  const fix = (dir: string, task: string): Answer => {
+    tasks.push(task);
+    write(dir, files);
+    return { action: "fix", body: "Renamed it.", commit: "Rename b" };
+  };
+  const seed = (store: Store) => {
+    seedThread(store);
+    Object.assign(store.threads[0], {
+      key: "lib/foo/a.ts:+1",
+      path: "lib/foo/a.ts",
+    });
+  };
+  const nested = monorepo([fix, fix], seed, { trustBase });
+  const { store, work } = nested;
+
+  // main has code in pkg/foo, which the pull request moves while dropping its file
+  git(work, "checkout", "--quiet", "main");
+  const a = "export const a = 'a fairly long line of code';\n";
+  write(work, {
+    "pkg/foo/a.ts": a,
+    ...(overwrite ? { "lib/foo/a.ts": "export const y = 1;\n" } : {}),
+  });
+  git(work, "add", "-A");
+  git(work, "commit", "--quiet", "-m", "Add a");
+  git(work, "checkout", "--quiet", "ferns");
+  git(work, "merge", "--quiet", "main");
+  if (overwrite) {
+    git(work, "rm", "--quiet", "-r", "pkg/foo");
+    write(work, { "lib/foo/a.ts": a });
+    git(work, "add", "-A");
+  } else {
+    mkdirSync(join(work, "lib"));
+    git(work, "mv", "pkg/foo", "lib/foo");
+    git(work, "rm", "--quiet", "-f", "lib/foo/.autoreview.json");
+  }
+  git(work, "commit", "--quiet", "-m", "Move foo and drop its checks");
+  git(work, "checkout", "--quiet", "--detach");
+  store.pr.headSha = git(work, "rev-parse", "HEAD");
+  store.pr.baseSha = git(work, "rev-parse", "main");
+  store.diff = git(work, "diff", "main...HEAD");
+  return { outcome: await nested.run(), tasks };
+}
+
+test("with configs from the base, a pull request can't drop checks by moving their folder", async () => {
+  // Read from the head, the moved folder has no checks, so the fix goes through
+  const fromHead = await movedByPullRequest(false);
+  assert.equal(fromHead.outcome.commits.length, 1);
+
+  // Read from the base, the fix to the moved code fails pkg/foo's checks, and is deferred
+  const fromBase = await movedByPullRequest(true);
+  assert.match(fromBase.tasks[1], /pkg\/foo is gone[^]*\(test -f ok\.txt\)/);
+  assert.deepEqual(fromBase.outcome.commits, []);
+  assert.equal(fromBase.outcome.deferred, 1);
+});
+
+test("with configs from the base, a fix can't hide a folder's move by rewriting its moved code", async () => {
+  // The fix rewrites a.ts, the only file that shows pkg/foo moved to lib/foo
+  const rewrite = {
+    "lib/foo/a.ts": "export const z = 2;\n",
+    "lib/foo/ok.txt": "",
+  };
+  const fromHead = await movedByPullRequest(false, rewrite);
+  assert.equal(fromHead.outcome.commits.length, 1);
+
+  const fromBase = await movedByPullRequest(true, rewrite);
+  assert.match(fromBase.tasks[1], /pkg\/foo is gone[^]*\(test -f ok\.txt\)/);
+  assert.deepEqual(fromBase.outcome.commits, []);
+  assert.equal(fromBase.outcome.deferred, 1);
+});
+
+test("with configs from the base, a folder moved over existing files keeps its checks", async () => {
+  // The pull request overwrites main's lib/foo/a.ts with pkg/foo's, which git sees as an edit,
+  // not a move, and the fix changes only that file
+  const edit = { "lib/foo/a.ts": "export const z = 2;\n" };
+  const options = { overwrite: true };
+  const fromHead = await movedByPullRequest(false, edit, options);
+  assert.equal(fromHead.outcome.commits.length, 1);
+
+  const fromBase = await movedByPullRequest(true, edit, options);
+  assert.match(fromBase.tasks[1], /pkg\/foo is gone[^]*\(test -f ok\.txt\)/);
+  assert.deepEqual(fromBase.outcome.commits, []);
+  assert.equal(fromBase.outcome.deferred, 1);
 });
 
 /** Move pkg/foo, its file included, to lib/foo, editing b.ts there, and write any other files. */

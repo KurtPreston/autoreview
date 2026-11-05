@@ -18,7 +18,7 @@ after(() => servers.forEach((server) => server.close()));
 interface Write {
   method: string;
   path: string;
-  body: { state?: string; description?: string } | undefined;
+  body: { state?: string; description?: string; body?: string } | undefined;
 }
 
 /**
@@ -98,7 +98,8 @@ async function pullRequest(config: object): Promise<{
 }
 
 /** Start the CLI on pull request #7, with the fake Copilot CLI playing back these steps. */
-function start(url: string, work: string, steps: object[]) {
+function start(url: string, work: string, run: { steps: object[]; flags?: string[] }) {
+  const { steps, flags = [] } = run;
   const script = join(work, "..", "steps.json");
   writeFileSync(script, JSON.stringify(steps));
   const env: NodeJS.ProcessEnv = {};
@@ -117,7 +118,7 @@ function start(url: string, work: string, steps: object[]) {
   });
   const child = spawn(
     process.execPath,
-    [CLI, "run", "--pr", "7", "--repo", work, "--checkout", work],
+    [CLI, "run", "--pr", "7", "--repo", work, "--checkout", work, ...flags],
     { env, stdio: ["ignore", "ignore", "pipe"] },
   );
   let log = "";
@@ -186,7 +187,7 @@ test("a CLI run cancelled during a slow push marks the pushed commit stopped bef
 
   // The job is cancelled while the fix is being pushed
   const first = branch(origin);
-  const run = start(url, work, [fixed]);
+  const run = start(url, work, { steps: [fixed] });
   await until(() => existsSync(pushing), { what: "the push", log: run.log });
   run.child.kill("SIGTERM");
   const code = await within(run.exited, 6000, "stopping");
@@ -214,7 +215,7 @@ test("a CLI run cancelled during a check stops the check's own child processes",
   const head = branch(origin);
 
   // The job is cancelled while a check's child process runs
-  const run = start(url, work, [fixed]);
+  const run = start(url, work, { steps: [fixed] });
   await until(() => existsSync(pidFile) && readFileSync(pidFile, "utf8").trim() !== "", {
     what: "the check",
     log: run.log,
@@ -229,4 +230,26 @@ test("a CLI run cancelled during a check stops the check's own child processes",
   const statuses = writes.filter((write) => write.path === `/repos/o/r/statuses/${head}`);
   assert.equal(statuses.at(-1)?.body?.description, "Stopped: cancelled by SIGTERM", run.log());
   assert.equal(branch(origin), head);
+});
+
+test("a trusted CLI run takes its config from the base and opens its posts with the notice", async () => {
+  // The pull request's own config fails every check, which only the base's absence of one avoids
+  const { url, origin, work, writes } = await pullRequest({ checks: ["false"] });
+  const head = branch(origin);
+  const run = start(url, work, {
+    steps: [fixed],
+    flags: ["--trusted-config", "--notice", "Pilot."],
+  });
+  const posts = () => writes.filter((write) => write.body?.body !== undefined);
+  await until(() => branch(origin) !== head && posts().length > 0, {
+    what: "the fix to land and be answered",
+    log: run.log,
+  });
+  run.child.kill("SIGTERM");
+  await within(run.exited, 6000, "stopping");
+
+  // The fix passed the base's checks and was pushed, and every post opens with the notice
+  for (const post of posts()) {
+    assert.ok(post.body?.body?.startsWith("🤖 Pilot.\n\n"), `${post.path}: ${post.body?.body}`);
+  }
 });

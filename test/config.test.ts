@@ -4,7 +4,16 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { ConfigError, DEFAULTS, loadConfig, parseConfig } from "../src/config.ts";
+import {
+  ConfigError,
+  DEFAULTS,
+  loadConfig,
+  loadConfigAt,
+  loadConfigFile,
+  parseConfig,
+} from "../src/config.ts";
+import { Checkout } from "../src/git.ts";
+import { git, repository } from "./harness.ts";
 
 test("an empty config is the defaults", () => {
   assert.deepEqual(parseConfig({}), DEFAULTS);
@@ -43,6 +52,43 @@ test("a repository without a config file gets the defaults", async () => {
   // With a file, its values are read
   await writeFile(join(dir, ".autoreview.json"), JSON.stringify({ visual: true }));
   assert.equal((await loadConfig(dir)).visual, true);
+});
+
+test("a config read at a commit ignores later commits and the working tree", async () => {
+  const { work } = repository();
+  const checkout = new Checkout(work);
+  const before = git(work, "rev-parse", "HEAD");
+
+  // A commit adds the file, and the working tree then changes it
+  await writeFile(join(work, ".autoreview.json"), JSON.stringify({ visual: true }));
+  git(work, "add", ".autoreview.json");
+  git(work, "commit", "--quiet", "-m", "Config");
+  const after = git(work, "rev-parse", "HEAD");
+  await writeFile(join(work, ".autoreview.json"), JSON.stringify({ visual: false }));
+
+  assert.deepEqual(await loadConfigAt(checkout, before), DEFAULTS);
+  assert.equal((await loadConfigAt(checkout, after)).visual, true);
+});
+
+test("an operator's config file names itself in errors", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "autoreview-"));
+  const path = join(dir, "yolo.json");
+  await writeFile(path, JSON.stringify({ checks: ["ruff check"] }));
+  assert.deepEqual((await loadConfigFile(path)).checks, ["ruff check"]);
+
+  await writeFile(path, JSON.stringify({ maxRounds: "two" }));
+  await assert.rejects(loadConfigFile(path), (error: Error) => {
+    assert.ok(error instanceof ConfigError);
+    assert.ok(error.message.startsWith(`${path}: `), error.message);
+    return true;
+  });
+
+  await writeFile(path, "{ not json");
+  await assert.rejects(loadConfigFile(path), (error: Error) => {
+    assert.ok(error instanceof ConfigError);
+    assert.ok(error.message.startsWith(`${path}: `), error.message);
+    return true;
+  });
 });
 
 test("workflows to start after a fix are listed by file name", () => {
