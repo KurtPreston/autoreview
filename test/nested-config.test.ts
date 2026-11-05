@@ -309,3 +309,36 @@ test("a folder moved earlier in the run still answers to its checks where it wen
   assert.equal(outcome.commits.length, 1);
   assert.equal(outcome.deferred, 1);
 });
+
+test("a moved folder keeps its checks after a later fix edits its file", async () => {
+  const tasks: string[] = [];
+
+  // After the move, one fix empties lib/foo's file, which passes, and the next breaks its check
+  const emptyFile = (dir: string, task: string): Answer => {
+    tasks.push(task);
+    write(dir, { "lib/foo/.autoreview.json": "{}" });
+    return { action: "fix", body: "Emptied it.", commit: "Empty foo's config" };
+  };
+  const breakFoo = (dir: string, task: string): Answer => {
+    tasks.push(task);
+    rmSync(join(dir, "lib/foo/ok.txt"), { force: true });
+    return { action: "fix", body: "Removed it.", commit: "Remove ok.txt" };
+  };
+  const nested = monorepo(
+    [moveFoo(tasks, { "lib/foo/ok.txt": "" }), emptyFile, breakFoo, breakFoo],
+    (store) => {
+      for (const id of [2, 3, 4]) {
+        seedThread(store);
+        Object.assign(store.threads[id - 2], {
+          id: String(id),
+          key: `pkg/foo/b.ts:+${id}`,
+        });
+        store.threads[id - 2].comments[0].id = id;
+      }
+    },
+  );
+  const outcome = await nested.run();
+  assert.match(tasks[3], /\$ \(in lib\/foo\) test -f ok\.txt/);
+  assert.equal(outcome.commits.length, 2);
+  assert.equal(outcome.deferred, 1);
+});

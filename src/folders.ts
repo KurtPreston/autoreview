@@ -1,6 +1,5 @@
 /** Folders' own `.autoreview.json` files, for the code under them. */
 import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { CONFIG_FILE, ConfigError, parseFolderConfig, type FolderConfig } from "./config.ts";
 import { foldersOf, type Convention } from "./context.ts";
@@ -17,15 +16,15 @@ export interface FolderSet extends FolderConfig {
 
 /**
  * Folder files read from the commit a run started at, so a fix can't change the checks it's
- * held to. A folder that has since taken another's file word for word, that folder having lost
- * it, was moved there, and answers to that file. Each file is read once.
+ * held to. A folder that took another's file word for word, that folder having lost it, was
+ * moved there, and answers to that file for the rest of the run, whatever later fixes do to its
+ * copy. Each file is read once.
  */
 export class FolderConfigs {
   readonly #checkout: Checkout;
   readonly #sha: string;
-  readonly #texts = new Map<string, Promise<string | undefined>>();
   readonly #parsed = new Map<string, Promise<FolderSet>>();
-  #listing?: Promise<string[]>;
+  readonly #trees = new Map<string, Promise<Map<string, string>>>();
 
   constructor(checkout: Checkout, sha: string) {
     this.#checkout = checkout;
@@ -43,9 +42,11 @@ export class FolderConfigs {
   }
 
   async #configs(folders: string[]): Promise<FolderSet[]> {
+    const starting = await this.#tree(this.#sha);
+    const moves = await this.#moves();
     const found: FolderSet[] = [];
     for (const folder of folders) {
-      const source = await this.#source(folder);
+      const source = starting.has(folder) ? folder : moves.get(folder);
       if (source === undefined) {
         continue;
       }
@@ -60,68 +61,90 @@ export class FolderConfigs {
 
   /** The folders with a file in the starting commit, shallowest first. */
   async #folders(): Promise<string[]> {
-    this.#listing ??= this.#checkout
-      .git("ls-tree", "-r", "-z", "--name-only", this.#sha)
-      .then((listing) => {
-        const suffix = `/${CONFIG_FILE}`;
-        const folders = listing
-          .split("\0")
-          .filter((path) => path.endsWith(suffix))
-          .map((path) => path.slice(0, -suffix.length));
-        return folders.sort(
-          (a, b) => a.split("/").length - b.split("/").length || a.localeCompare(b),
-        );
-      });
-    return this.#listing;
+    const folders = [...(await this.#tree(this.#sha)).keys()];
+    return folders.sort((a, b) => a.split("/").length - b.split("/").length || a.localeCompare(b));
   }
 
   /**
-   * The folder whose starting file applies to a folder: its own, or else that of the one
-   * folder that has since lost its file and whose file this folder now has word for word, in
-   * the working tree or as committed during the run. Undefined when there's neither.
+   * The folders moved during the run, each with the folder whose starting file it took. They're
+   * replayed from the run's commits, then the working tree: a folder without a starting file is
+   * moved from another once it has that folder's starting file word for word, that folder has
+   * lost it, and no other folder that lost an identical file could be its source. A move, once
+   * made, stays.
    */
-  async #source(folder: string): Promise<string | undefined> {
-    if ((await this.#text(folder)) !== undefined) {
-      return folder;
-    }
-    const lost = (await this.#folders()).filter(
-      (other) => !existsSync(join(this.#checkout.dir, other, CONFIG_FILE)),
-    );
-    if (lost.length === 0) {
-      return undefined;
-    }
-    const path = `${folder}/${CONFIG_FILE}`;
-    const current = await readFile(join(this.#checkout.dir, path), "utf8").catch(() => undefined);
-    const now = [current, await this.#show("HEAD", path)].filter((text) => text !== undefined);
-    const sources: string[] = [];
-    for (const other of lost) {
-      if (now.includes((await this.#text(other))!)) {
-        sources.push(other);
+  async #moves(): Promise<Map<string, string>> {
+    const starting = await this.#tree(this.#sha);
+    const commits = (
+      await this.#checkout.git("rev-list", "--reverse", "--topo-order", `${this.#sha}..HEAD`)
+    )
+      .split("\n")
+      .filter(Boolean);
+    const states = [...commits.map((commit) => this.#tree(commit)), this.#workingTree()];
+    const moves = new Map<string, string>();
+    for (const state of states) {
+      const present = await state;
+      const lost = [...starting.keys()].filter((folder) => !present.has(folder));
+      for (const [folder, blob] of present) {
+        if (starting.has(folder) || moves.has(folder)) {
+          continue;
+        }
+        const sources = lost.filter((source) => starting.get(source) === blob);
+        if (sources.length === 1) {
+          moves.set(folder, sources[0]);
+        }
       }
     }
-    return sources.length === 1 ? sources[0] : undefined;
+    return moves;
   }
 
-  /** A folder's file as the starting commit has it, or undefined when it has none. */
-  async #text(folder: string): Promise<string | undefined> {
-    if (!this.#texts.has(folder)) {
-      this.#texts.set(folder, this.#show(this.#sha, `${folder}/${CONFIG_FILE}`));
+  /** Each folder with a file in a commit, with the file's blob. A commit's is read once. */
+  async #tree(commit: string): Promise<Map<string, string>> {
+    if (!this.#trees.has(commit)) {
+      this.#trees.set(
+        commit,
+        this.#checkout.git("ls-tree", "-r", "-z", commit).then((listing) => {
+          const blobs = new Map<string, string>();
+          for (const entry of listing.split("\0").filter(Boolean)) {
+            const tab = entry.indexOf("\t");
+            const folder = configFolder(entry.slice(tab + 1));
+            if (folder !== undefined) {
+              blobs.set(folder, entry.slice(0, tab).split(" ")[2]);
+            }
+          }
+          return blobs;
+        }),
+      );
     }
-    return this.#texts.get(folder);
+    return this.#trees.get(commit)!;
   }
 
-  /** A file as a commit has it, or undefined when it has none. */
-  async #show(commit: string, path: string): Promise<string | undefined> {
-    // ls-tree prints nothing for a missing file, where show would fail
-    if (!(await this.#checkout.git("ls-tree", "--name-only", commit, "--", path)).trim()) {
-      return undefined;
+  /** Each folder with a file in the working tree, with the blob the file would commit as. */
+  async #workingTree(): Promise<Map<string, string>> {
+    const listing = await this.#checkout.git(
+      "ls-files",
+      "-z",
+      "--cached",
+      "--others",
+      "--exclude-standard",
+    );
+    const paths = [
+      ...new Set(
+        listing
+          .split("\0")
+          .filter((path) => configFolder(path) !== undefined)
+          .filter((path) => existsSync(join(this.#checkout.dir, path))),
+      ),
+    ];
+    if (paths.length === 0) {
+      return new Map();
     }
-    return this.#checkout.git("show", `${commit}:${path}`);
+    const blobs = (await this.#checkout.git("hash-object", "--", ...paths)).trim().split("\n");
+    return new Map(paths.map((path, index) => [configFolder(path)!, blobs[index]]));
   }
 
   /** The starting file of `source`, applied to `folder`. */
   async #load(source: string, folder: string): Promise<FolderSet> {
-    const text = (await this.#text(source))!;
+    const text = await this.#checkout.git("show", `${this.#sha}:${source}/${CONFIG_FILE}`);
 
     // Name the file when it isn't JSON, as for any other mistake in it
     const path = `${folder}/${CONFIG_FILE}`;
@@ -133,6 +156,12 @@ export class FolderConfigs {
     }
     return { ...parseFolderConfig(raw, folder), source };
   }
+}
+
+/** The folder a path is a folder's file in, or undefined when it isn't one. */
+function configFolder(path: string): string | undefined {
+  const suffix = `/${CONFIG_FILE}`;
+  return path.endsWith(suffix) ? path.slice(0, -suffix.length) : undefined;
 }
 
 /**
