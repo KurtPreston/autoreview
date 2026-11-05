@@ -76,6 +76,8 @@ export interface Forge {
   ): Promise<void>;
   reply(number: number, thread: Thread, body: string): Promise<void>;
   resolve(thread: Thread): Promise<void>;
+  /** Mark a resolved thread unresolved again. */
+  reopen(thread: Thread): Promise<void>;
   comment(number: number, body: string): Promise<void>;
   addLabel(number: number, name: string): Promise<void>;
   removeLabel(number: number, name: string): Promise<void>;

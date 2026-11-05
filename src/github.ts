@@ -182,6 +182,11 @@ export class GitHub implements Forge {
     await this.#graphql(query, { thread: thread.id });
   }
 
+  async reopen(thread: Thread): Promise<void> {
+    const query = await readFile(new URL("reopen.graphql", QUERIES), "utf8");
+    await this.#graphql(query, { thread: thread.id });
+  }
+
   async comment(number: number, body: string): Promise<void> {
     await this.#request("POST", `${this.#repo}/issues/${number}/comments`, { body });
   }

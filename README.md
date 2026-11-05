@@ -9,7 +9,7 @@ By default (`"defer": "best-effort"`) the agents decide what they can and flag i
 
 Both agents run through the Copilot CLI. Each has its own label, and a run starts when a pull request carries either, and again on each push or review while it stays:
 
-- **`autoreview`** runs the reviewer. Alone, it posts findings, rechecks them against later commits, and resolves those the author's commits settle. Every open finding waits on the author.
+- **`autoreview`** runs the reviewer. Alone, it posts findings, rechecks them against later commits, and resolves those the author's commits settle. Every open finding waits on the author. If someone else resolves a finding before the reviewer agrees, as another fixing agent might, the reviewer rechecks it and reopens it with a reason if it isn't settled.
 - **`autofix`** runs the fixer. Alone, it answers every open thread, including those other bots and people open, and leaves its answers open for whoever opened the thread.
 - **Both** run the full deliberation: the fixer answers, and the reviewer verifies every answer, including those in threads it didn't open.
 

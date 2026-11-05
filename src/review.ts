@@ -1,12 +1,12 @@
 /** The reviewer's passes: rechecking deferrals against new commits, and reviewing them. */
-import type { NewComment, PullRequest } from "./forge.ts";
+import type { NewComment, PullRequest, Thread } from "./forge.ts";
 import { changedFiles, diffLines } from "./git.ts";
 import type { Run } from "./loop.ts";
 import { compose, readMarker, type Marker } from "./markers.ts";
 import { clip, common, guidanceFor, modeText, render } from "./prompts.ts";
 import type { Finding } from "./schemas.ts";
 import { opener } from "./status.ts";
-import { describe, DIFF_LIMIT, forAuthor, tidy } from "./threads.ts";
+import { closedEarly, describe, DIFF_LIMIT, forAuthor, tidy } from "./threads.ts";
 
 const MAX_FINDINGS = 10;
 
@@ -43,7 +43,8 @@ export async function newChanges(
 /**
  * Ask the reviewer whether the author's new commits settle any thread left to them, and
  * resolve those. Agents never reopen a deferral; only the author's changes can settle one.
- * Without the fixer, every open finding is the author's.
+ * Without the fixer, every open finding is the author's, and a finding someone else resolved
+ * is rechecked too, and reopened if it isn't settled.
  */
 export async function recheck(
   run: Run,
@@ -51,16 +52,24 @@ export async function recheck(
   { last, diff }: { last: string; diff: string },
 ): Promise<void> {
   const threads = await run.reviewer.threads(run.number);
-  const deferred = threads.filter((t) => forAuthor(run, t));
+  const closed = threads.filter((t) => closedEarly(run, t));
+  const deferred = [...threads.filter((t) => forAuthor(run, t)), ...closed];
   if (deferred.length === 0) {
     return;
   }
-  run.log(`rechecking ${deferred.length} threads left to the author`);
+  run.log(
+    `rechecking ${deferred.length} threads left to the author, ${closed.length} closed early`,
+  );
 
   // Ask for a verdict on each, with the new commits
   const task = render("recheck", {
     common: common(pr, run.config, guidanceFor(run, "reviewer")),
-    threads: deferred.map((thread) => `### ${thread.key}\n\n${describe(thread)}`).join("\n\n"),
+    threads: deferred
+      .map(
+        (thread) =>
+          `### ${thread.key}\n\n${closed.includes(thread) ? CLOSED : ""}${describe(thread)}`,
+      )
+      .join("\n\n"),
     baseSha: last,
     changes: clip(diff, DIFF_LIMIT, `run git diff ${last}..HEAD for the rest`),
   });
@@ -70,10 +79,16 @@ export async function recheck(
   );
   await tidy(run);
 
-  // Resolve what's settled; anything else stays with the author, unremarked
+  // Resolve what's settled; anything else stays with the author, unremarked unless reopened
   for (const { key, verdict, body } of verification.threads) {
     const thread = deferred.find((t) => t.key === key);
-    if (!thread || verdict !== "resolved") {
+    if (!thread) {
+      continue;
+    }
+    if (verdict !== "resolved") {
+      if (closed.includes(thread)) {
+        await reopen(run, thread, body);
+      }
       continue;
     }
     const marker: Marker = { role: "reviewer", kind: "verdict", value: "resolved" };
@@ -82,10 +97,24 @@ export async function recheck(
       thread,
       compose(`**Autoreview reviewer** · ${run.config.reviewer.model} · resolved`, body, marker),
     );
-    if (opener(thread) !== "person") {
+    if (!thread.resolved && opener(thread) !== "person") {
       await run.reviewer.resolve(thread);
     }
   }
+}
+
+const CLOSED =
+  "**Resolved by someone else before the reviewer agreed.** Judge the current code, not only the changes below.\n\n";
+
+/** Reopen a thread someone closed before it was settled, saying why. */
+async function reopen(run: Run, thread: Thread, reason: string): Promise<void> {
+  const marker: Marker = { role: "reviewer", kind: "verdict", value: "follow-up" };
+  await run.reviewer.reopen(thread);
+  await run.reviewer.reply(
+    run.number,
+    thread,
+    compose(`**Autoreview reviewer** · ${run.config.reviewer.model} · reopened`, reason, marker),
+  );
 }
 
 /** Review the changes since the last run, or the whole pull request on the first. */

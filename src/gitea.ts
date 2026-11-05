@@ -172,6 +172,10 @@ export class Gitea implements Forge {
     await this.#request("POST", `${this.#repo}/pulls/comments/${thread.id}/resolve`);
   }
 
+  async reopen(thread: Thread): Promise<void> {
+    await this.#request("POST", `${this.#repo}/pulls/comments/${thread.id}/unresolve`);
+  }
+
   async comment(number: number, body: string): Promise<void> {
     await this.#request("POST", `${this.#repo}/issues/${number}/comments`, { body });
   }

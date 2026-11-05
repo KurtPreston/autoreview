@@ -431,6 +431,53 @@ test("with only autoreview, findings wait for the author until their commits set
   assert.ok(!reviewOnly.store.pr.labels.includes("needs-author"));
 });
 
+/** Another agent commits, replies in our thread and resolves it, as an outside fixer does. */
+function closeElsewhere(target: ReturnType<typeof setup>, text: string): void {
+  authorCommits(target, text);
+  const [thread] = target.store.threads;
+  thread.comments.push({ id: 90, author: "paloma", body: "Fixed.", createdAt: "", bot: true });
+  thread.resolved = true;
+}
+
+test("with only autoreview, a finding someone else resolves unsettled is reopened", async () => {
+  const tasks: string[] = [];
+  const unsettled = (keys: string[], task: string) => (tasks.push(task), verdict("defer")(keys));
+  const reviewOnly = setup(
+    { review: [{ summary: "One problem.", findings: [finding] }], verify: [unsettled] },
+    { seed: (store) => (store.pr.labels = ["autoreview"]) },
+  );
+  await reviewOnly.run();
+
+  // The outside fix misses the point, so the reviewer reopens the thread and says why
+  closeElsewhere(reviewOnly, "n * 3");
+  const later = await reviewOnly.run();
+  const [thread] = reviewOnly.store.threads;
+  assert.match(tasks[0], /Resolved by someone else before the reviewer agreed/);
+  assert.equal(thread.resolved, false);
+  assert.match(thread.comments.at(-1)?.body ?? "", /reopened[\s\S]*Verdict: defer/);
+  assert.equal(later.deferred, 1);
+  assert.ok(reviewOnly.store.pr.labels.includes("needs-author"));
+});
+
+test("with only autoreview, a finding someone else settles stays resolved, checked once", async () => {
+  const reviewOnly = setup(
+    { review: [{ summary: "One problem.", findings: [finding] }], verify: [verdict("resolved")] },
+    { seed: (store) => (store.pr.labels = ["autoreview"]) },
+  );
+  await reviewOnly.run();
+  closeElsewhere(reviewOnly, "Math.min(n * 2, LIMIT)");
+  const later = await reviewOnly.run();
+  const [thread] = reviewOnly.store.threads;
+  assert.equal(thread.resolved, true);
+  assert.match(thread.comments.at(-1)?.body ?? "", /Verdict: resolved/);
+  assert.equal(later.deferred, 0);
+
+  // Its agreement is on record, so the next commits don't recheck it
+  authorCommits(reviewOnly, "Math.min(n * 2, CAP)");
+  await reviewOnly.run();
+  assert.equal(reviewOnly.calls.verify, 1);
+});
+
 test("with only autofix, the fixer answers open threads, unverified, and reviews nothing", async () => {
   const fixOnly = setup(
     { fix: [fix("Math.min(n * 2, MAX)")], verify: [verdict("resolved")] },

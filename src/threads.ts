@@ -47,6 +47,22 @@ export function forAuthor(run: Run, thread: Thread): boolean {
   return state === "deferred" || (!run.roles.fix && state === "fix" && opener(thread) === "ours");
 }
 
+/**
+ * Whether, with no fixer of ours, someone else resolved a thread our reviewer opened before
+ * the reviewer agreed, as an outside fixer does. A deferral stays the author's call.
+ */
+export function closedEarly(run: Run, thread: Thread): boolean {
+  if (run.roles.fix || !thread.resolved || opener(thread) !== "ours") {
+    return false;
+  }
+  const markers = thread.comments.map((comment) => readMarker(comment.body));
+  if (markers.some((marker) => marker?.deferred)) {
+    return false;
+  }
+  const verdict = markers.findLast((marker) => marker?.role === "reviewer");
+  return !(verdict?.kind === "verdict" && verdict.value === "resolved");
+}
+
 /** Whether autoreview has a part in a thread: it opened it, or one of its roles spoke there. */
 export function involved(thread: Thread): boolean {
   return thread.comments.some((comment) => readMarker(comment.body) !== undefined);
