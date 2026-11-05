@@ -12,7 +12,7 @@ Give each thread a verdict:
 - `follow-up`: the fix is incomplete or wrong, or the reply doesn't hold up. Say exactly what is still missing. Don't raise unrelated points here.
 {{deferVerdict}}
 
-Also review the lines this round changed, and report any new problem they introduced as a finding (the same shape as in a first review, anchored to a changed line). Don't report problems in code this round didn't touch. No findings is the usual answer.
+Also review the lines this round changed, and report any new problem they introduced as a finding, anchored to a changed line: its `path` from the repository root, its `line` in the new file, a `severity` (`blocker`, `major`, `minor` or `nit`) and a `body`. Don't report problems in code this round didn't touch. No findings is the usual answer.
 
 ## Answer
 
@@ -23,7 +23,14 @@ Answer with only this JSON object, with one entry per thread below, using its ke
   "threads": [
     { "key": "src/file.ts:+42", "verdict": "resolved", "body": "Your comment in the thread." }
   ],
-  "findings": []
+  "findings": [
+    {
+      "path": "src/file.ts",
+      "line": 57,
+      "severity": "major",
+      "body": "What is wrong, why it matters, and what to do."
+    }
+  ]
 }
 ```
 

@@ -259,7 +259,7 @@ test("a trusted CLI run takes its config from the base and posts the notice once
 });
 
 for (const [what, pr] of [
-  ["a draft", { draft: true }],
+  ["an unlabelled", { labels: [] }],
   ["a closed", { state: "closed" }],
 ] as const) {
   test(`a CLI run skipping ${what} pull request posts no notice`, async () => {
@@ -271,8 +271,8 @@ for (const [what, pr] of [
   });
 }
 
-test("a forced CLI run on a draft pull request posts the notice", async () => {
-  const { url, work, writes } = await pullRequest({}, { draft: true });
+test("a forced CLI run on an unlabelled pull request posts the notice", async () => {
+  const { url, work, writes } = await pullRequest({}, { labels: [] });
   const run = start(url, work, { steps: [fixed], flags: ["--force", "--notice", "Pilot."] });
   const notices = () => writes.filter((write) => write.body?.body?.startsWith("Pilot."));
   await until(() => notices().length > 0, { what: "the notice", log: run.log });
