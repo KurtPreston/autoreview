@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { frontmatter, instructionsFor, instructionsForRole } from "../src/instructions.ts";
+import { frontmatter, globs, instructionsFor, instructionsForRole } from "../src/instructions.ts";
 
 /** A checkout holding the given files and their text. */
 async function checkout(files: Record<string, string>): Promise<string> {
@@ -56,4 +56,96 @@ test("front matter is read only from a leading block", () => {
   });
   assert.deepEqual(frontmatter("text\n---\napplyTo: '**'\n---\n"), {});
   assert.deepEqual(frontmatter("---\napplyTo: '**'\n"), {});
+});
+
+test("front matter values are read as YAML scalars", () => {
+  // Comments end a value, but not a quoted one
+  assert.deepEqual(
+    frontmatter(
+      '---\n# Settings\napplyTo: "**/*.ts" # TypeScript\nexcludeAgent: code-review # fixer only\n' +
+        "name: 'a # b' # c\nnote: a#b\n---\n",
+    ),
+    { applyTo: "**/*.ts", excludeAgent: "code-review", name: "a # b", note: "a#b" },
+  );
+
+  // Block scalars, literal or folded, with their chomping
+  assert.deepEqual(
+    frontmatter(
+      "---\nfolded: >-\n  **/*.ts,\n  **/*.tsx\n\nkept: |+ # c\n  a\n  b\n\nclipped: >\n  a\n\n  b\n" +
+        "excludeAgent: >\n  cloud-agent\n---\n",
+    ),
+    {
+      folded: "**/*.ts, **/*.tsx",
+      kept: "a\nb\n\n",
+      clipped: "a\nb\n",
+      excludeAgent: "cloud-agent\n",
+    },
+  );
+
+  // Plain and quoted values that continue on indented lines
+  assert.deepEqual(
+    frontmatter(
+      "---\nplain: a,\n  b # c\n  d\nsingle: 'it''s\n  here'\ndouble:\n  \"a\\tb\\\n  c\\u0021\"\n---\n",
+    ),
+    { plain: "a, b", single: "it's here", double: "a\tbc!" },
+  );
+
+  // Comments between a key and its value
+  assert.deepEqual(
+    frontmatter(
+      '---\napplyTo: # TypeScript\n  "**/*.ts"\nexcludeAgent: # fixer only\n  # still\n  code-review\n' +
+        "block: # c\n  |\n    a\nempty: # nothing\n---\n",
+    ),
+    { applyTo: "**/*.ts", excludeAgent: "code-review", block: "a\n", empty: "" },
+  );
+});
+
+test("commented and multiline values still match and exclude", async () => {
+  const dir = await checkout({
+    [`${DIR}/ts.instructions.md`]:
+      '---\napplyTo: "**/*.ts" # TypeScript\nexcludeAgent: "code-review" # fixer only\n---\n',
+    [`${DIR}/web.instructions.md`]:
+      "---\napplyTo: >-\n  **/*.css,\n  **/*.html\nexcludeAgent: >\n  cloud-agent\n---\n",
+    [`${DIR}/md.instructions.md`]:
+      '---\napplyTo: # Markdown\n  "**/*.md"\nexcludeAgent: # fixer only\n  code-review\n---\n',
+  });
+  assert.deepEqual(
+    await instructionsFor({ dir, changed: ["src/a.ts", "web/b.html", "docs/c.md"] }),
+    [
+      { path: `${DIR}/md.instructions.md`, applyTo: "**/*.md", excludes: "reviewer" },
+      { path: `${DIR}/ts.instructions.md`, applyTo: "**/*.ts", excludes: "reviewer" },
+      { path: `${DIR}/web.instructions.md`, applyTo: "**/*.css,**/*.html", excludes: "fixer" },
+    ],
+  );
+});
+
+test("applyTo splits at commas outside braces and brackets", async () => {
+  assert.deepEqual(globs("**/*.{ts,tsx}, docs/**"), ["**/*.{ts,tsx}", "docs/**"]);
+  assert.deepEqual(globs("a/{b,{c,d}}/*.md,[,x]*,[],]y,\\,z"), [
+    "a/{b,{c,d}}/*.md",
+    "[,x]*",
+    "[],]y",
+    "\\,z",
+  ]);
+  assert.deepEqual(globs("a[b, c"), ["a[b", "c"]);
+  assert.deepEqual(globs("src/[[]*.ts, docs/**"), ["src/[[]*.ts", "docs/**"]);
+
+  const dir = await checkout({
+    [`${DIR}/ts.instructions.md`]: '---\napplyTo: "**/*.{ts,tsx}, docs/**"\n---\n',
+  });
+  for (const file of ["src/a.ts", "src/b.tsx", "docs/c.md"]) {
+    assert.deepEqual(await instructionsFor({ dir, changed: [file] }), [
+      { path: `${DIR}/ts.instructions.md`, applyTo: "**/*.{ts,tsx},docs/**" },
+    ]);
+  }
+
+  const bracketed = await checkout({
+    [`${DIR}/b.instructions.md`]: '---\napplyTo: "src/[[]*.ts, docs/**"\n---\n',
+  });
+  for (const file of ["src/[a.ts", "docs/c.md"]) {
+    assert.deepEqual(await instructionsFor({ dir: bracketed, changed: [file] }), [
+      { path: `${DIR}/b.instructions.md`, applyTo: "src/[[]*.ts,docs/**" },
+    ]);
+  }
+  assert.deepEqual(await instructionsFor({ dir: bracketed, changed: ["src/a.ts"] }), []);
 });
