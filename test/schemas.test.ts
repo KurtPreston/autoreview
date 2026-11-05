@@ -80,6 +80,11 @@ test("markers survive text that would close an HTML comment", () => {
   assert.equal(plainText(body), "Text.");
 });
 
+test("comments that open with an older notice line still read as their text", () => {
+  const finding = compose("Finding", "Text.", { role: "reviewer", kind: "finding" });
+  assert.equal(plainText(`🤖 Run by an operator's pilot.\n\n${finding}`), "Text.");
+});
+
 test("verifications default to no new findings", () => {
   const value = validateVerification({
     threads: [{ key: "a.ts:+3", verdict: "resolved", body: "Good." }],
