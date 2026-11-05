@@ -52,10 +52,11 @@ export async function recheck(
   { last, diff }: { last: string; diff: string },
 ): Promise<void> {
   const threads = await run.reviewer.threads(run.number);
-  const closed = threads.filter((t) => closedEarly(run, t) && !reopening(t));
+  const closed = threads.filter((t) => closedEarly(run, t) && !reopening(t, pr.headSha));
 
-  // A reopening cut short after its reason was posted only needs the thread reopened
-  for (const thread of threads.filter((t) => closedEarly(run, t) && reopening(t))) {
+  // A reopening cut short after its reason was posted, with no commits since, only needs the
+  // thread reopened; after new commits it's rechecked like any other
+  for (const thread of threads.filter((t) => closedEarly(run, t) && reopening(t, pr.headSha))) {
     await run.reviewer.reopen(thread);
   }
   const deferred = [...threads.filter((t) => forAuthor(run, t)), ...closed];
@@ -92,7 +93,7 @@ export async function recheck(
     }
     if (verdict !== "resolved") {
       if (closed.includes(thread)) {
-        await reopen(run, thread, body);
+        await reopen(run, thread, { reason: body, head: pr.headSha });
       }
       continue;
     }
@@ -113,10 +114,15 @@ const CLOSED =
 
 /**
  * Reopen a thread someone closed before it was settled, saying why. The reason goes first, so
- * a run that stops between the two leaves it on record, and the next run finishes reopening.
+ * a run that stops between the two leaves it on record, with the head it judged, and the next
+ * run on that head finishes reopening.
  */
-async function reopen(run: Run, thread: Thread, reason: string): Promise<void> {
-  const marker: Marker = { role: "reviewer", kind: "verdict", value: "follow-up" };
+async function reopen(
+  run: Run,
+  thread: Thread,
+  { reason, head }: { reason: string; head: string },
+): Promise<void> {
+  const marker: Marker = { role: "reviewer", kind: "verdict", value: "follow-up", head };
   await run.reviewer.reply(
     run.number,
     thread,
@@ -125,10 +131,15 @@ async function reopen(run: Run, thread: Thread, reason: string): Promise<void> {
   await run.reviewer.reopen(thread);
 }
 
-/** Whether a closed thread's latest comment is the reviewer's reason for reopening it. */
-function reopening(thread: Thread): boolean {
+/** Whether a closed thread's latest comment is the reviewer's reason for reopening it at `head`. */
+function reopening(thread: Thread, head: string): boolean {
   const last = readMarker(thread.comments.at(-1)?.body ?? "");
-  return last?.role === "reviewer" && last.kind === "verdict" && last.value === "follow-up";
+  return (
+    last?.role === "reviewer" &&
+    last.kind === "verdict" &&
+    last.value === "follow-up" &&
+    last.head === head
+  );
 }
 
 /** Review the changes since the last run, or the whole pull request on the first. */

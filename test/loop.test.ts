@@ -491,6 +491,30 @@ test("with only autoreview, a reopening cut short keeps its reason and finishes 
   assert.equal(later.deferred, 1);
 });
 
+test("with only autoreview, a reopened finding fixed and resolved without a reply is rechecked", async () => {
+  const reviewOnly = setup(
+    {
+      review: [{ summary: "One problem.", findings: [finding] }],
+      verify: [verdict("defer"), verdict("resolved")],
+    },
+    { seed: (store) => (store.pr.labels = ["autoreview"]) },
+  );
+  await reviewOnly.run();
+  closeElsewhere(reviewOnly, "n * 3");
+  await reviewOnly.run();
+  const [thread] = reviewOnly.store.threads;
+  assert.equal(thread.resolved, false);
+
+  // A new commit fixes it, and the thread is resolved with the reopening still the last word
+  authorCommits(reviewOnly, "Math.min(n * 2, LIMIT)");
+  thread.resolved = true;
+  const later = await reviewOnly.run();
+  assert.equal(reviewOnly.calls.verify, 2);
+  assert.equal(thread.resolved, true);
+  assert.match(thread.comments.at(-1)?.body ?? "", /Verdict: resolved/);
+  assert.equal(later.deferred, 0);
+});
+
 test("with only autoreview, a finding someone else settles stays resolved, checked once", async () => {
   const reviewOnly = setup(
     { review: [{ summary: "One problem.", findings: [finding] }], verify: [verdict("resolved")] },
