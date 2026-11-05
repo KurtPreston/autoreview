@@ -117,8 +117,13 @@ export interface Check {
   command: string;
 }
 
-/** One config's checks, from the root (`.`) or a folder's file. */
-export type CheckSet = Pick<FolderConfig, "folder" | "checks" | "heavyChecks">;
+/**
+ * One config's checks, from the root (`.`) or a folder's file; `source` is the folder whose file
+ * it is in the starting commit.
+ */
+export type CheckSet = Pick<FolderConfig, "folder" | "checks" | "heavyChecks"> & {
+  source?: string;
+};
 
 /** The checks some paths answer to: the root's, then each folder file's, shallowest first. */
 export async function checkSets(run: Run, paths: string[]): Promise<CheckSet[]> {
@@ -141,7 +146,10 @@ export async function heavyDeny(run: Run): Promise<string[]> {
 /** The checks to run from some sets, with heavy ones only when the runner can afford them. */
 export function runnable(run: Run, sets: CheckSet[]): Check[] {
   return sets.flatMap(({ folder, checks, heavyChecks }) =>
-    [...checks, ...(run.heavy ? heavyChecks : [])].map((command) => ({ folder, command })),
+    [...checks, ...(run.heavy ? heavyChecks : [])].map((command) => ({
+      folder,
+      command,
+    })),
   );
 }
 
@@ -155,16 +163,23 @@ export async function failingCheck(run: Run): Promise<string | undefined> {
   if (changed.length === 0) {
     return undefined;
   }
-  for (const set of await checkSets(run, changed)) {
+  const sets = await checkSets(run, changed);
+  for (const set of sets) {
     const checks = runnable(run, [set]);
-    let folder = set.folder;
+    const { folder, source } = set;
     if (checks.length > 0 && !existsSync(join(run.checkout.dir, folder))) {
-      const moved = await run.folders.movedTo(folder, changed);
-      if (!moved) {
-        const commands = checks.map((check) => check.command).join(", ");
-        return `${folder} is gone, and no single folder gained its ${CONFIG_FILE} unchanged, so its checks (${commands}) couldn't run. Keep the folder, or move it whole with its ${CONFIG_FILE} unchanged.`;
+      // A folder that took its file whole is a set of its own, checked there
+      const moved = sets.some(
+        (other) =>
+          other !== set &&
+          other.source === source &&
+          existsSync(join(run.checkout.dir, other.folder)),
+      );
+      if (moved) {
+        continue;
       }
-      folder = moved;
+      const commands = checks.map((check) => check.command).join(", ");
+      return `${folder} is gone, and no folder took its ${CONFIG_FILE} unchanged, so its checks (${commands}) couldn't run. Keep the folder, or move it whole with its ${CONFIG_FILE} unchanged.`;
     }
     for (const { command } of checks) {
       const result = await run.checkout.check(command, { cwd: folder });
@@ -201,7 +216,11 @@ export async function answerThread(
     reply: "reply",
     defer: person ? `for @${person.author}` : "for the author",
   }[answer.action];
-  const marker: Marker = { role: "fixer", kind: "answer", value: answer.action };
+  const marker: Marker = {
+    role: "fixer",
+    kind: "answer",
+    value: answer.action,
+  };
   if (answer.action === "defer") {
     marker.deferred = true;
   }

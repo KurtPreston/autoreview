@@ -1,6 +1,6 @@
 import "./scratch.ts";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { ConfigError, parseFolderConfig } from "../src/config.ts";
@@ -229,5 +229,37 @@ test("a folder that's gone without its file landing whole elsewhere fails its ch
   const outcome = await nested.run();
   assert.match(tasks[1], /pkg\/foo is gone[^]*\(test -f ok\.txt\)/);
   assert.deepEqual(outcome.commits, []);
+  assert.equal(outcome.deferred, 1);
+});
+
+test("a folder moved earlier in the run still answers to its checks where it went", async () => {
+  const tasks: string[] = [];
+
+  // The second thread's fix, after the first moved pkg/foo, breaks its check and loosens its file
+  const breakFoo = (dir: string, task: string): Answer => {
+    tasks.push(task);
+    rmSync(join(dir, "lib/foo/ok.txt"), { force: true });
+    write(dir, {
+      "lib/foo/b.ts": "export const b2 = 1;\n",
+      "lib/foo/.autoreview.json": "{}",
+    });
+    return { action: "fix", body: "Renamed it.", commit: "Rename b again" };
+  };
+  const nested = monorepo(
+    [moveFoo(tasks, { "lib/foo/ok.txt": "" }), breakFoo, breakFoo],
+    (store) => {
+      seedThread(store);
+      seedThread(store);
+      Object.assign(store.threads[1], {
+        id: "3",
+        key: "pkg/foo/b.ts:+2",
+        line: 2,
+      });
+      store.threads[1].comments[0].id = 3;
+    },
+  );
+  const outcome = await nested.run();
+  assert.match(tasks[2], /\$ \(in lib\/foo\) test -f ok\.txt/);
+  assert.equal(outcome.commits.length, 1);
   assert.equal(outcome.deferred, 1);
 });
