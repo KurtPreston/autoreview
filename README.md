@@ -79,7 +79,7 @@ This writes `.github/workflows/autoreview.yml` and creates the `autoreview`, `au
 - **Checks on fixes.** Pushes made with the workflow's token start no workflows, so the other checks wouldn't see autoreview's fixes. `add.sh` lists the project's pull request workflows that have a `workflow_dispatch` trigger in the config's `dispatch`, and autoreview starts them after pushing. It names the ones without the trigger. Those pushes still create `pull_request` runs awaiting approval; leave them.
 - **Restricted actions.** If the organization only allows its own actions, either ask an admin to allow `KurtPreston/autoreview` pinned to a commit, or run `add.sh --vendor`, which copies the action into `.github/actions/autoreview/` and uses that. Rerun it to update the copy.
 - **Other reviewers.** The workflow also starts when someone submits a review, so the fixer answers other bots and people promptly. Reviews autoreview posts with the workflow's token start no runs.
-- Pull requests from forks and drafts are skipped.
+- Pull requests from forks are skipped. Labelled drafts are deliberated, so a pull request can be hardened before people review it.
 
 ## Setup on Gitea
 
@@ -174,7 +174,7 @@ The workflow template installs the project's npm dependencies first, when it has
 ./src/autoreview.ts run --pr 42 --repo path/to/repo --dry-run
 ```
 
-`--dry-run` deliberates against an in-memory copy of the pull request. It prints every comment it would post, makes commits only in a temporary worktree, and pushes nothing. Without `--dry-run`, it posts and pushes for real as one identity: on GitHub `GITHUB_TOKEN`, `GH_TOKEN` or your `gh` login; on Gitea `GITEA_TOKEN` or your `tea` login. With `AUTOREVIEW_REVIEWER_TOKEN` and `AUTOREVIEW_FIXER_TOKEN` set, it posts as the two of them. The forge is chosen from the origin's host (`github.com` and `*.ghe.com` are GitHub); `AUTOREVIEW_FORGE=github` or `gitea` overrides it, such as for GitHub Enterprise Server. `--force` deliberates without either label (playing both roles), or on a draft or closed pull request. `threads --pr 42` lists a pull request's review threads.
+`--dry-run` deliberates against an in-memory copy of the pull request. It prints every comment it would post, makes commits only in a temporary worktree, and pushes nothing. Without `--dry-run`, it posts and pushes for real as one identity: on GitHub `GITHUB_TOKEN`, `GH_TOKEN` or your `gh` login; on Gitea `GITEA_TOKEN` or your `tea` login. With `AUTOREVIEW_REVIEWER_TOKEN` and `AUTOREVIEW_FIXER_TOKEN` set, it posts as the two of them. The forge is chosen from the origin's host (`github.com` and `*.ghe.com` are GitHub); `AUTOREVIEW_FORGE=github` or `gitea` overrides it, such as for GitHub Enterprise Server. `--force` deliberates without either label (playing both roles), or on a closed pull request. `threads --pr 42` lists a pull request's review threads.
 
 Agent calls write their task and answer under `$TMPDIR/autoreview-<role>-*`, and the directory is kept when a call fails. Node runs with `--use-system-ca`, so servers with a private certificate authority work when the system trusts it.
 

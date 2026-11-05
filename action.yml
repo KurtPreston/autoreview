@@ -54,7 +54,7 @@ runs:
         PUSH_TOKEN: ${{ inputs.fixer-token || inputs.token }}
       run: '"$GITHUB_ACTION_PATH/setup-git.sh"'
 
-    # Deliberate; the tool skips pull requests without either label, drafts, and its own pushes
+    # Deliberate; the tool skips pull requests without either label, and its own pushes
     - name: Deliberate
       shell: bash
       env:

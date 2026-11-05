@@ -26,11 +26,10 @@ concurrency:
 
 jobs:
   autoreview:
-    # Skip drafts, and forks, whose heads the workflow's token can't push to
+    # Skip forks, whose heads the workflow's token can't push to
     if: >-
       (contains(github.event.pull_request.labels.*.name, 'autoreview') ||
         contains(github.event.pull_request.labels.*.name, 'autofix')) &&
-      !github.event.pull_request.draft &&
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: {{runsOn}}
     timeout-minutes: 120

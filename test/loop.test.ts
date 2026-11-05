@@ -204,12 +204,12 @@ test("the run stops without replying when the branch moved", async () => {
   assert.equal(git(origin, "log", "-1", "--format=%s", "ferns"), "Theirs");
 });
 
-test("pull requests without the label, or drafts, are skipped", async () => {
+test("pull requests without the label are skipped, but labelled drafts are deliberated", async () => {
   const unlabelled = setup({}, { seed: (store) => (store.pr.labels = []) });
   assert.match((await unlabelled.run()).skipped ?? "", /isn't labelled autoreview/);
   const draft = setup({}, { seed: (store) => (store.pr.draft = true) });
-  assert.match((await draft.run()).skipped ?? "", /draft/);
-  assert.equal(draft.store.comments.length, 0);
+  assert.equal((await draft.run()).skipped, undefined);
+  assert.ok(draft.store.comments.length > 0);
 });
 
 test("a rerun with nothing new posts nothing", async () => {
