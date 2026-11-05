@@ -1,6 +1,7 @@
+import { posix } from "node:path";
 import type { Usage } from "./agent.ts";
 import type { Config } from "./config.ts";
-import { contextFor } from "./context.ts";
+import { contextFor, type Convention } from "./context.ts";
 import type { Forge, PullRequest } from "./forge.ts";
 import { changedFiles, type Checkout } from "./git.ts";
 import { fixRound } from "./fix.ts";
@@ -57,9 +58,9 @@ export interface Run extends Deliberation {
   roles: Roles;
   /**
    * Convention files in the folders the pull request changes, beyond the configured context:
-   * found by name, or listed in a folder's config.
+   * found by name, or listed in a folder's config, each with the folder whose code it's for.
    */
-  conventions: string[];
+  conventions: Convention[];
   /** Folders' own configs, read from the head the run started at. */
   folders: FolderConfigs;
 }
@@ -120,7 +121,7 @@ export async function deliberate(input: Deliberation): Promise<Outcome> {
   const folders = new FolderConfigs(checkout, pr.headSha);
   const found = await contextFor({ dir: checkout.dir, context: config.context, changed });
   const listed = folderContext(await folders.for(changed), [...config.context, ...found]);
-  const conventions = [...found, ...listed];
+  const conventions = [...found.map((path) => ({ path, folder: posix.dirname(path) })), ...listed];
   const run: Run = { ...input, roles, conventions, folders };
 
   // Recheck what the author's new commits settle, and review them

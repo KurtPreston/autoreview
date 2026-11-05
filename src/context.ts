@@ -2,6 +2,12 @@
 import { stat } from "node:fs/promises";
 import { join, posix } from "node:path";
 
+/** A convention file, and the folder whose code it applies to. */
+export interface Convention {
+  path: string;
+  folder: string;
+}
+
 /**
  * Each bare filename in the configured context (such as `AGENTS.md`) found in a folder the
  * pull request changes or any folder above one, short of the root. Entries with a path, and

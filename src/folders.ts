@@ -2,7 +2,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { CONFIG_FILE, ConfigError, parseFolderConfig, type FolderConfig } from "./config.ts";
-import { foldersOf } from "./context.ts";
+import { foldersOf, type Convention } from "./context.ts";
 import type { Checkout } from "./git.ts";
 
 /**
@@ -102,14 +102,19 @@ export class FolderConfigs {
   }
 }
 
-/** The context the folder files add, leaving out paths already listed. */
-export function folderContext(configs: FolderConfig[], listed: string[]): string[] {
+/**
+ * The context the folder files add, each for the code under the folder whose file lists it,
+ * leaving out paths already listed.
+ */
+export function folderContext(configs: FolderConfig[], listed: string[]): Convention[] {
   const seen = new Set(listed);
-  const added: string[] = [];
-  for (const path of configs.flatMap((config) => config.context)) {
-    if (!seen.has(path)) {
-      seen.add(path);
-      added.push(path);
+  const added: Convention[] = [];
+  for (const { folder, context } of configs) {
+    for (const path of context) {
+      if (!seen.has(path)) {
+        seen.add(path);
+        added.push({ path, folder });
+      }
     }
   }
   return added;

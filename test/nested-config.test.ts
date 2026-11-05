@@ -152,8 +152,9 @@ test("a fix answers to the checks of its folders and those above, each run in it
   const nested = monorepo([fixB(tasks), fixB(tasks, { "pkg/foo/ok.txt": "" })]);
   const outcome = await nested.run();
 
-  // The agents read the folder's context, and the fixer sees its checks with their folders
-  assert.match(nested.reviews[0], /`pkg\/docs\/style\.md`/);
+  // The agents read the folder's context for its folder's code, and the fixer sees its checks
+  // with their folders
+  assert.match(nested.reviews[0], /`pkg\/docs\/style\.md` for `pkg\/`/);
   assert.match(
     tasks[0],
     /fix what they report: `true`, `test -f marker` \(in `pkg`\), `test -f ok\.txt` \(in `pkg\/foo`\)\./,
