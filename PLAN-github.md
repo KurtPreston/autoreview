@@ -155,5 +155,14 @@ index set).
   Requests" can stand in. The organization path at work is unaffected.
 - `gh auth status` in the agent's shell gets its login from `GITHUB_TOKEN`, so unsetting it for a
   local smoke test also logs gh out. Kept the variable.
+- **Even with the secret, Copilot used the workflow's token**, because the agent inherited
+  `GITHUB_TOKEN` and the CLI preferred it. Fixed in `src/agent.ts`: agents now run without the
+  forge tokens (keeping a local `GITHUB_TOKEN` as `COPILOT_GITHUB_TOKEN`), which also means
+  agents can't post or push themselves.
+- **Autoreview's push creates `pull_request` runs awaiting approval** (`action_required`,
+  triggered by `github-actions[bot]`) instead of no runs. They don't execute; `dispatch` runs the
+  checks. Documented rather than changed.
+- The trial passed: finding, fix pushed as `github-actions[bot]`, dispatched Checks, verification,
+  resolution, a false positive argued down and resolved, and the summary.
 
 ## Found bugs
