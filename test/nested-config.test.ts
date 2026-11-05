@@ -1,6 +1,6 @@
 import "./scratch.ts";
 import assert from "node:assert/strict";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { ConfigError, parseFolderConfig } from "../src/config.ts";
@@ -156,6 +156,44 @@ test("a fix can't loosen its own folder's checks", async () => {
   const nested = monorepo([fixB(tasks, loosen), fixB(tasks, loosen)]);
   const outcome = await nested.run();
   assert.equal(nested.calls.fix, 2);
+  assert.deepEqual(outcome.commits, []);
+  assert.equal(outcome.deferred, 1);
+});
+
+/** Move pkg/foo, its file included, to lib/foo, editing b.ts there, and write any other files. */
+function moveFoo(tasks: string[], files: Record<string, string> = {}) {
+  return (dir: string, task: string): Answer => {
+    tasks.push(task);
+    // A retry finds the first try's move still in place
+    if (existsSync(join(dir, "pkg/foo"))) {
+      mkdirSync(join(dir, "lib"), { recursive: true });
+      renameSync(join(dir, "pkg/foo"), join(dir, "lib/foo"));
+    }
+    write(dir, { "lib/foo/b.ts": "export const bee = 1;\n", ...files });
+    return { action: "fix", body: "Moved it.", commit: "Move foo" };
+  };
+}
+
+test("a moved folder answers to its checks where it went", async () => {
+  const tasks: string[] = [];
+  const nested = monorepo([moveFoo(tasks), moveFoo(tasks)]);
+  const outcome = await nested.run();
+  assert.match(tasks[1], /\$ \(in lib\/foo\) test -f ok\.txt/);
+  assert.deepEqual(outcome.commits, []);
+  assert.equal(outcome.deferred, 1);
+
+  const passing = monorepo([moveFoo([], { "lib/foo/ok.txt": "" })]);
+  const passed = await passing.run();
+  assert.equal(passing.calls.fix, 1);
+  assert.equal(passed.commits.length, 1);
+});
+
+test("a folder that's gone without its file landing whole elsewhere fails its checks", async () => {
+  const tasks: string[] = [];
+  const edited = { "lib/foo/.autoreview.json": "{}", "lib/foo/ok.txt": "" };
+  const nested = monorepo([moveFoo(tasks, edited), moveFoo(tasks, edited)]);
+  const outcome = await nested.run();
+  assert.match(tasks[1], /pkg\/foo is gone[^]*\(test -f ok\.txt\)/);
   assert.deepEqual(outcome.commits, []);
   assert.equal(outcome.deferred, 1);
 });

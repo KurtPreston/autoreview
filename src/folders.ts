@@ -1,4 +1,6 @@
 /** Folders' own `.autoreview.json` files, for the code under them. */
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { CONFIG_FILE, ConfigError, parseFolderConfig, type FolderConfig } from "./config.ts";
 import { foldersOf } from "./context.ts";
 import type { Checkout } from "./git.ts";
@@ -32,15 +34,48 @@ export class FolderConfigs {
     return found;
   }
 
-  async #load(folder: string): Promise<FolderConfig | undefined> {
+  /**
+   * Where a folder the fix removed went: the one folder among the changed paths that gained
+   * its file unchanged, or undefined when there's no such single folder.
+   */
+  async movedTo(folder: string, changed: string[]): Promise<string | undefined> {
+    const original = await this.#text(folder);
+    if (original === undefined) {
+      return undefined;
+    }
+    const found = new Set<string>();
+    for (const path of changed) {
+      const name = path.split("/").pop();
+      const destination = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : ".";
+      if (name !== CONFIG_FILE || destination === folder) {
+        continue;
+      }
+      const text = await readFile(join(this.#checkout.dir, path), "utf8").catch(() => undefined);
+      if (text === original && (await this.#text(destination)) === undefined) {
+        found.add(destination);
+      }
+    }
+    return found.size === 1 ? [...found][0] : undefined;
+  }
+
+  /** A folder's file as the starting commit has it, or undefined when it has none. */
+  async #text(folder: string): Promise<string | undefined> {
     // ls-tree prints nothing for a missing file, where show would fail
     const path = `${folder}/${CONFIG_FILE}`;
     if (!(await this.#checkout.git("ls-tree", "--name-only", this.#sha, "--", path)).trim()) {
       return undefined;
     }
+    return this.#checkout.git("show", `${this.#sha}:${path}`);
+  }
+
+  async #load(folder: string): Promise<FolderConfig | undefined> {
+    const text = await this.#text(folder);
+    if (text === undefined) {
+      return undefined;
+    }
 
     // Name the file when it isn't JSON, as for any other mistake in it
-    const text = await this.#checkout.git("show", `${this.#sha}:${path}`);
+    const path = `${folder}/${CONFIG_FILE}`;
     let raw: unknown;
     try {
       raw = JSON.parse(text);

@@ -1,7 +1,7 @@
 /** The fixer's round: answering threads, checking and committing fixes. */
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import type { FolderConfig } from "./config.ts";
+import { CONFIG_FILE, type FolderConfig } from "./config.ts";
 import type { PullRequest, Thread } from "./forge.ts";
 import type { Outcome, Run } from "./loop.ts";
 import { compose, type Marker } from "./markers.ts";
@@ -134,22 +134,31 @@ export function runnable(run: Run, sets: CheckSet[]): Check[] {
 
 /**
  * The first check that fails, with its output, or undefined when all pass. Only the root's
- * checks and those of the folders the fix changed run, each in its own folder.
+ * checks and those of the folders the fix changed run, each in its own folder. A folder the
+ * fix moved is checked where it went; one whose new place can't be found fails.
  */
 export async function failingCheck(run: Run): Promise<string | undefined> {
   const changed = await run.checkout.changed();
   if (changed.length === 0) {
     return undefined;
   }
-  for (const check of runnable(run, await checkSets(run, changed))) {
-    // A folder the fix removed has nothing left to check
-    if (!existsSync(join(run.checkout.dir, check.folder))) {
-      continue;
+  for (const set of await checkSets(run, changed)) {
+    const checks = runnable(run, [set]);
+    let folder = set.folder;
+    if (checks.length > 0 && !existsSync(join(run.checkout.dir, folder))) {
+      const moved = await run.folders.movedTo(folder, changed);
+      if (!moved) {
+        const commands = checks.map((check) => check.command).join(", ");
+        return `${folder} is gone, and no single folder gained its ${CONFIG_FILE} unchanged, so its checks (${commands}) couldn't run. Keep the folder, or move it whole with its ${CONFIG_FILE} unchanged.`;
+      }
+      folder = moved;
     }
-    const result = await run.checkout.check(check.command, { cwd: check.folder });
-    if (!result.ok) {
-      const where = check.folder === "." ? "" : `(in ${check.folder}) `;
-      return `$ ${where}${check.command}\n${result.output}`;
+    for (const { command } of checks) {
+      const result = await run.checkout.check(command, { cwd: folder });
+      if (!result.ok) {
+        const where = folder === "." ? "" : `(in ${folder}) `;
+        return `$ ${where}${command}\n${result.output}`;
+      }
     }
   }
   return undefined;
