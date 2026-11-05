@@ -159,7 +159,8 @@ export function runnable(run: Run, sets: CheckSet[]): Check[] {
  * The first check that fails, with its output, or undefined when all pass. Only the root's
  * checks and those of the folders the fix changed run, each in its own folder. A folder the
  * fix moved is checked where it went; one whose new place can't be found fails, as does a fix
- * to code moved out of a folder that's gone without its file landing whole elsewhere.
+ * to code moved out of a folder that's gone without its file landing whole elsewhere, or to
+ * any file new since the starting commit while such a folder is gone.
  */
 export async function failingCheck(run: Run): Promise<string | undefined> {
   const changed = await run.checkout.changed();

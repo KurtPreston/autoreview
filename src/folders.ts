@@ -25,6 +25,7 @@ export class FolderConfigs {
   readonly #sha: string;
   readonly #parsed = new Map<string, Promise<FolderSet>>();
   readonly #trees = new Map<string, Promise<Map<string, string>>>();
+  #paths?: Promise<Set<string>>;
 
   constructor(checkout: Checkout, sha: string) {
     this.#checkout = checkout;
@@ -61,8 +62,10 @@ export class FolderConfigs {
 
   /**
    * The starting files of folders that are gone, no folder having taken their file word for
-   * word, whose code moved to where some of the paths lie. Which checks that code answers to
-   * can't be told, so a fix there is held to the lost folder's.
+   * word, whose code may have moved to where some of the paths lie. Which checks that code
+   * answers to can't be told, so a fix there is held to the lost folder's. A path that's new
+   * since the starting commit may be such code, moved and rewritten past recognition, so a fix
+   * to one is held to every lost folder's.
    */
   async stranded(paths: string[]): Promise<FolderSet[]> {
     const taken = new Set((await this.#moves()).values());
@@ -72,23 +75,15 @@ export class FolderConfigs {
     if (lost.length === 0) {
       return [];
     }
+    const starting = await this.#files();
+    if (paths.some((path) => !starting.has(path))) {
+      return this.#configs(lost);
+    }
 
-    // Find where each lost folder's files went, from the starting commit to the working tree
-    const fields = (
-      await this.#checkout.git("diff", "-M", "--name-status", "-z", this.#sha, "--")
-    ).split("\0");
+    // Find where each lost folder's files went, by the head's commits or the working tree, so a
+    // fix rewriting a moved file doesn't hide the move
     const stranded = new Set<string>();
-    for (let i = 0; i < fields.length; i++) {
-      const status = fields[i];
-      if (!/^[RC]/.test(status)) {
-        i++;
-        continue;
-      }
-      const [from, to] = [fields[i + 1], fields[i + 2]];
-      i += 2;
-      if (status.startsWith("C")) {
-        continue;
-      }
+    for (const [from, to] of [...(await this.#renames("HEAD")), ...(await this.#renames())]) {
       for (const folder of lost.filter((folder) => from.startsWith(`${folder}/`))) {
         const rest = from.slice(folder.length);
         const where = to.endsWith(rest) ? to.slice(0, -rest.length) : posix.dirname(to);
@@ -98,6 +93,42 @@ export class FolderConfigs {
       }
     }
     return this.#configs(lost.filter((folder) => stranded.has(folder)));
+  }
+
+  /** The files renamed from the starting commit to a commit, or to the working tree. */
+  async #renames(commit?: string): Promise<[string, string][]> {
+    const fields = (
+      await this.#checkout.git(
+        "diff",
+        "-M",
+        "--name-status",
+        "-z",
+        this.#sha,
+        ...(commit ? [commit] : []),
+        "--",
+      )
+    ).split("\0");
+    const renames: [string, string][] = [];
+    for (let i = 0; i < fields.length; i++) {
+      const status = fields[i];
+      if (!/^[RC]/.test(status)) {
+        i++;
+        continue;
+      }
+      if (status.startsWith("R")) {
+        renames.push([fields[i + 1], fields[i + 2]]);
+      }
+      i += 2;
+    }
+    return renames;
+  }
+
+  /** Every file in the starting commit, read once. */
+  async #files(): Promise<Set<string>> {
+    this.#paths ??= this.#checkout
+      .git("ls-tree", "-r", "-z", "--name-only", this.#sha)
+      .then((listing) => new Set(listing.split("\0").filter(Boolean)));
+    return this.#paths;
   }
 
   /** The folders with a file in the starting commit, shallowest first. */

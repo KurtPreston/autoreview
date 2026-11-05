@@ -265,12 +265,18 @@ test("with configs from the base, a pull request can't drop the checks its fixes
   assert.equal(fromBase.deferred, 1);
 });
 
-/** Run a pull request that moves pkg/foo to lib/foo without its file, reading configs from its base or not. */
-async function movedByPullRequest(trustBase: boolean) {
+/**
+ * Run a pull request that moves pkg/foo, a.ts its only file on main, to lib/foo without its
+ * file, reading configs from its base or not. Its fixes write `files` and lib/foo/ok.txt.
+ */
+async function movedByPullRequest(
+  trustBase: boolean,
+  files: Record<string, string> = { "lib/foo/b.ts": "export const bee = 1;\n" },
+) {
   const tasks: string[] = [];
   const fix = (dir: string, task: string): Answer => {
     tasks.push(task);
-    write(dir, { "lib/foo/b.ts": "export const bee = 1;\n", "lib/foo/ok.txt": "" });
+    write(dir, { ...files, "lib/foo/ok.txt": "" });
     return { action: "fix", body: "Renamed it.", commit: "Rename b" };
   };
   const seed = (store: Store) => {
@@ -305,6 +311,18 @@ test("with configs from the base, a pull request can't drop checks by moving the
 
   // Read from the base, the fix to the moved code fails pkg/foo's checks, and is deferred
   const fromBase = await movedByPullRequest(true);
+  assert.match(fromBase.tasks[1], /pkg\/foo is gone[^]*\(test -f ok\.txt\)/);
+  assert.deepEqual(fromBase.outcome.commits, []);
+  assert.equal(fromBase.outcome.deferred, 1);
+});
+
+test("with configs from the base, a fix can't hide a folder's move by rewriting its moved code", async () => {
+  // The fix rewrites a.ts, the only file that shows pkg/foo moved to lib/foo
+  const rewrite = { "lib/foo/a.ts": "export const z = 2;\n" };
+  const fromHead = await movedByPullRequest(false, rewrite);
+  assert.equal(fromHead.outcome.commits.length, 1);
+
+  const fromBase = await movedByPullRequest(true, rewrite);
   assert.match(fromBase.tasks[1], /pkg\/foo is gone[^]*\(test -f ok\.txt\)/);
   assert.deepEqual(fromBase.outcome.commits, []);
   assert.equal(fromBase.outcome.deferred, 1);
