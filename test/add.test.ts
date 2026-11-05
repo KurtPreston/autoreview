@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { ACTION, add, guessConfig } from "../src/add.ts";
+import { ACTION, add, guessConfig, workflowEvents } from "../src/add.ts";
 
 /** A repository whose origin is on a stub server, and the API calls the stub saw. */
 function project(files: Record<string, string>) {
@@ -154,6 +154,8 @@ test("on GitHub, the workflow uses the workflow's token, and checks are started 
     ".github/workflows/ci.yml": "on:\n  pull_request:\n  workflow_dispatch:\n",
     ".github/workflows/lint.yml": "on: [pull_request]\n",
     ".github/workflows/release.yml": "on:\n  workflow_dispatch:\n",
+    ".github/workflows/deploy.yml":
+      "on: [push, workflow_dispatch]\njobs:\n  d:\n    if: github.event_name != 'pull_request'\n",
   });
   const log: string[] = [];
   await add({ ...githubOptions, repo, log: (message) => log.push(message), fetch });
@@ -192,4 +194,39 @@ test("--vendor copies the action into the repository and uses the copy", async (
     assert.ok(existsSync(join(repo, ".github/actions/autoreview", part)), part);
   }
   assert.ok(!existsSync(join(repo, ".github/actions/autoreview/stale.txt")));
+});
+
+test("a workflow's events are read from its top-level on, not its jobs or comments", () => {
+  assert.deepEqual(workflowEvents("on: push\n"), ["push"]);
+  assert.deepEqual(workflowEvents("on: [pull_request, 'workflow_dispatch']\n"), [
+    "pull_request",
+    "workflow_dispatch",
+  ]);
+  assert.deepEqual(workflowEvents('"on": { push: { branches: [main] }, pull_request }\n'), [
+    "push",
+    "pull_request",
+  ]);
+  assert.deepEqual(workflowEvents("on:\n- push\n- pull_request\njobs: {}\n"), [
+    "push",
+    "pull_request",
+  ]);
+  assert.deepEqual(
+    workflowEvents(
+      [
+        "name: deploy # not on pull_request",
+        "on:",
+        "  push:",
+        "    branches: [main]",
+        "    paths: [pull_request]",
+        "  # pull_request:",
+        "  workflow_dispatch:",
+        "jobs:",
+        "  deploy:",
+        "    if: github.event_name != 'pull_request'",
+        "",
+      ].join("\n"),
+    ),
+    ["push", "workflow_dispatch"],
+  );
+  assert.deepEqual(workflowEvents("jobs:\n  on: pull_request\n"), []);
 });

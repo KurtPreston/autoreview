@@ -13,7 +13,7 @@ import { forgeKind } from "./forges.ts";
 import { parseRemote } from "./remote.ts";
 
 export { guessConfig } from "./add/files.ts";
-export { guessDispatch } from "./add/github.ts";
+export { guessDispatch, workflowEvents } from "./add/github.ts";
 export { ACTION, type AddOptions, SECRETS } from "./add/options.ts";
 export { askHidden } from "./add/secrets.ts";
 

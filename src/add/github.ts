@@ -84,10 +84,11 @@ export async function guessDispatch(repo: string, log: AddOptions["log"]): Promi
   const missing: string[] = [];
   for (const file of files.filter((name) => /\.ya?ml$/.test(name)).sort()) {
     const text = await readFile(join(repo, WORKFLOWS, file), "utf8");
-    if (file === "autoreview.yml" || !/\bpull_request\b/.test(text)) {
+    const events = workflowEvents(text);
+    if (file === "autoreview.yml" || !events.includes("pull_request")) {
       continue;
     }
-    (/\bworkflow_dispatch\b/.test(text) ? dispatch : missing).push(file);
+    (events.includes("workflow_dispatch") ? dispatch : missing).push(file);
   }
   if (missing.length > 0) {
     log(
@@ -96,4 +97,52 @@ export async function guessDispatch(repo: string, log: AddOptions["log"]): Promi
     );
   }
   return dispatch;
+}
+
+/**
+ * The events a workflow's top-level `on` names, in any of its forms (a name, a list or a
+ * map), read without a YAML parser. Comments and the rest of the workflow are ignored.
+ */
+export function workflowEvents(text: string): string[] {
+  const lines = text.split(/\r?\n/).map((line) => line.replace(/(^|\s)#.*$/, "").trimEnd());
+  const key = /^(?:on|"on"|'on')\s*:(?:\s+|$)/;
+  const start = lines.findIndex((line) => key.test(line));
+  if (start < 0) {
+    return [];
+  }
+
+  // On the key's line: a name, [a, b] or {a: ..., b}, which may run over several lines
+  let inline = lines[start].replace(key, "");
+  if (inline) {
+    const close = inline.startsWith("[") ? "]" : inline.startsWith("{") ? "}" : "";
+    for (let next = start + 1; close && !inline.includes(close) && next < lines.length; next++) {
+      inline += ` ${lines[next]}`;
+    }
+    return inline
+      .replace(/^[[{]|[\]}]$/g, "")
+      .split(",")
+      .map((part) => unquote(part.split(":")[0]))
+      .filter(Boolean);
+  }
+
+  // Below the key: the entries of its block, at the block's own indentation
+  const block: string[] = [];
+  for (const line of lines.slice(start + 1)) {
+    if (line.trim() === "") {
+      continue;
+    }
+    if (!/^(\s|-\s|-$)/.test(line)) {
+      break;
+    }
+    block.push(line);
+  }
+  const indent = Math.min(...block.map((line) => /^\s*/.exec(line)![0].length));
+  return block
+    .filter((line) => /^\s*/.exec(line)![0].length === indent)
+    .map((line) => unquote(line.trim().replace(/^-\s*/, "").split(":")[0]))
+    .filter(Boolean);
+}
+
+function unquote(name: string): string {
+  return name.trim().replace(/^(["'])(.*)\1$/, "$2");
 }
