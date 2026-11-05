@@ -2,7 +2,7 @@
 import type { Run } from "./loop.ts";
 import type { Forge, Thread } from "./forge.ts";
 import { compose, plainText, readMarker, type Marker, type Role } from "./markers.ts";
-import { opener, status } from "./status.ts";
+import { deferredNow, opener, status } from "./status.ts";
 import type { Decision } from "./schemas.ts";
 
 /** How much diff an agent's task carries before it is cut. */
@@ -49,16 +49,17 @@ export function forAuthor(run: Run, thread: Thread): boolean {
 
 /**
  * Whether, with no fixer of ours, someone else resolved a thread our reviewer opened before
- * the reviewer agreed, as an outside fixer does. A deferral stays the author's call.
+ * the reviewer agreed, as an outside fixer does. A deferral stays the author's call until
+ * someone else speaks in the thread, as in `status()`.
  */
 export function closedEarly(run: Run, thread: Thread): boolean {
   if (run.roles.fix || !thread.resolved || opener(thread) !== "ours") {
     return false;
   }
-  const markers = thread.comments.map((comment) => readMarker(comment.body));
-  if (markers.some((marker) => marker?.deferred)) {
+  if (deferredNow(thread)) {
     return false;
   }
+  const markers = thread.comments.map((comment) => readMarker(comment.body));
   const verdict = markers.findLast((marker) => marker?.role === "reviewer");
   return !(verdict?.kind === "verdict" && verdict.value === "resolved");
 }

@@ -478,6 +478,26 @@ test("with only autoreview, a finding someone else settles stays resolved, check
   assert.equal(reviewOnly.calls.verify, 1);
 });
 
+test("with only autoreview, a deferred finding handed back and resolved elsewhere is rechecked", async () => {
+  const forAuthor = { summary: "For you.", findings: [{ ...finding, forAuthor: true }] };
+  const reviewOnly = setup(
+    { review: [forAuthor], verify: [verdict("resolved")] },
+    { config: { defer: "blocking" }, seed: (store) => (store.pr.labels = ["autoreview"]) },
+  );
+  await reviewOnly.run();
+  const [thread] = reviewOnly.store.threads;
+  assert.equal(status(thread), "deferred");
+
+  // The author hands it back, and an outside fixer settles it
+  thread.comments.push({ id: 89, author: "kurt", body: "Go ahead and fix it.", createdAt: "" });
+  closeElsewhere(reviewOnly, "Math.min(n * 2, LIMIT)");
+  const later = await reviewOnly.run();
+  assert.equal(reviewOnly.calls.verify, 1);
+  assert.equal(thread.resolved, true);
+  assert.match(thread.comments.at(-1)?.body ?? "", /Verdict: resolved/);
+  assert.equal(later.deferred, 0);
+});
+
 test("with only autofix, the fixer answers open threads, unverified, and reviews nothing", async () => {
   const fixOnly = setup(
     { fix: [fix("Math.min(n * 2, MAX)")], verify: [verdict("resolved")] },
