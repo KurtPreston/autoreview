@@ -165,3 +165,9 @@ test("errors carry the server's message", async () => {
   const { forge } = stub({});
   await assert.rejects(forge.login(), /Gitea GET \/user: 404 not found/);
 });
+
+test("a workflow is started on a branch through the dispatch API", async () => {
+  const { forge, calls } = stub({ "POST /repos/o/r/actions/workflows/checks.yml/dispatches": "" });
+  await forge.dispatch("checks.yml", "ferns");
+  assert.deepEqual(calls[0].body, { ref: "ferns" });
+});

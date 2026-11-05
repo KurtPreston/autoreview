@@ -194,6 +194,11 @@ export class GitHub implements Forge {
     }
   }
 
+  async dispatch(workflow: string, ref: string): Promise<void> {
+    const path = `${this.#repo}/actions/workflows/${encodeURIComponent(workflow)}/dispatches`;
+    await this.#request("POST", path, { ref });
+  }
+
   /** Create a repository label unless it exists. */
   async ensureLabel(name: string): Promise<void> {
     if (this.#labels.has(name)) {

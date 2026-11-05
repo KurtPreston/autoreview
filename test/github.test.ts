@@ -212,3 +212,9 @@ test("errors carry the server's message, and GraphQL errors throw", async () => 
   await assert.rejects(forge.pullRequest(1), /GitHub GET \/repos\/o\/r\/pulls\/1: 404 not found/);
   await assert.rejects(forge.threads(1), /GitHub graphql: Could not resolve to a PullRequest/);
 });
+
+test("a workflow is started on a branch through the dispatch API", async () => {
+  const { forge, calls } = stub({ "POST /repos/o/r/actions/workflows/checks.yml/dispatches": "" });
+  await forge.dispatch("checks.yml", "ferns");
+  assert.deepEqual(calls[0].body, { ref: "ferns" });
+});

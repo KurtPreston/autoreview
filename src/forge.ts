@@ -66,6 +66,8 @@ export interface Forge {
   comment(number: number, body: string): Promise<void>;
   addLabel(number: number, name: string): Promise<void>;
   removeLabel(number: number, name: string): Promise<void>;
+  /** Start a workflow by file name on a branch, where the forge can. */
+  dispatch?(workflow: string, ref: string): Promise<void>;
 }
 
 /** Build a thread key from where a conversation sits. */

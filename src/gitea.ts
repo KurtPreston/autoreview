@@ -189,6 +189,11 @@ export class Gitea implements Forge {
     );
   }
 
+  async dispatch(workflow: string, ref: string): Promise<void> {
+    const path = `${this.#repo}/actions/workflows/${encodeURIComponent(workflow)}/dispatches`;
+    await this.#request("POST", path, { ref });
+  }
+
   /** Create a repository label unless it exists. Used when enabling a repository. */
   async ensureLabel(name: string): Promise<void> {
     await this.#labelId(name);
