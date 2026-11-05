@@ -160,7 +160,11 @@ function retryTask(task: string, answer: string, problem: string): string {
 /** Run the CLI, returning its output, or throwing on failure or timeout. */
 function run(bin: string, args: string[], call: AgentCall<unknown>): Promise<string> {
   return new Promise((resolve, reject) => {
-    const child = spawn(bin, args, { cwd: call.cwd, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(bin, args, {
+      cwd: call.cwd,
+      env: agentEnv(),
+      stdio: ["ignore", "pipe", "pipe"],
+    });
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (chunk: Buffer) => (stdout += chunk));
@@ -196,4 +200,30 @@ function run(bin: string, args: string[], call: AgentCall<unknown>): Promise<str
       }
     });
   });
+}
+
+/** Tokens the loop posts and pushes with, which agents must not hold. */
+const FORGE_TOKENS = [
+  "GITHUB_TOKEN",
+  "GH_TOKEN",
+  "GITEA_TOKEN",
+  "AUTOREVIEW_REVIEWER_TOKEN",
+  "AUTOREVIEW_IMPLEMENTER_TOKEN",
+];
+
+/**
+ * The environment an agent runs in: without the forge tokens, so the Copilot CLI signs in
+ * with COPILOT_GITHUB_TOKEN rather than the workflow's token, and only the loop can act.
+ * Without COPILOT_GITHUB_TOKEN, a GitHub token the CLI would have used is handed over as it.
+ */
+export function agentEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const clean = { ...env };
+  clean.COPILOT_GITHUB_TOKEN ||= env.GH_TOKEN || env.GITHUB_TOKEN || undefined;
+  if (!clean.COPILOT_GITHUB_TOKEN) {
+    delete clean.COPILOT_GITHUB_TOKEN;
+  }
+  for (const name of FORGE_TOKENS) {
+    delete clean[name];
+  }
+  return clean;
 }
