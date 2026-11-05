@@ -46,6 +46,11 @@ export interface Deliberation {
   heavy: boolean;
   /** Deliberate even without a label (as both roles), or on a draft or closed pull request. */
   force: boolean;
+  /**
+   * The commit whose folder configs apply, such as the pull request's base, so the pull request
+   * can't change the checks it's held to. The head the run starts at by default.
+   */
+  configSha?: string;
   /** Where to watch this run, linked from its commit status. */
   link?: string;
   /** Stops the run when aborted, as when the job is cancelled or times out. */
@@ -74,7 +79,7 @@ export interface Run extends Deliberation {
   conventions: Convention[];
   /** `.github/instructions` files whose `applyTo` matches a file the pull request changes. */
   instructions: Instruction[];
-  /** Folders' own configs, read from the head the run started at. */
+  /** Folders' own configs, read from `configSha`, or the head the run started at. */
   folders: FolderConfigs;
   /** The run's commit status, on the pull request's latest commit. */
   progress: Progress;
@@ -178,7 +183,7 @@ async function deliberateFrom(
   // Add convention files found in, or listed by, the folders the pull request changes, and the
   // instruction files whose patterns match its files
   const changed = changedFiles(await setUp.reviewer.diff(number));
-  const folders = new FolderConfigs(checkout, pr.headSha);
+  const folders = new FolderConfigs(checkout, setUp.configSha ?? pr.headSha);
   const found = await contextFor({ dir: checkout.dir, context: config.context, changed });
   const conventions = folderContext(
     await folders.for(changed),

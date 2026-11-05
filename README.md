@@ -182,6 +182,16 @@ The workflow template installs the project's npm dependencies first, when it has
 
 Agent calls write their task and answer under `$TMPDIR/autoreview-<role>-*`, and the directory is kept when a call fails. Node runs with `--use-system-ca`, so servers with a private certificate authority work when the system trusts it.
 
+### Running it for someone else's repository
+
+When you run autoreview on pull requests you didn't write, such as from a scheduled job on your own machine, a pull request shouldn't be able to change how it's reviewed:
+
+- `--trusted-config` reads `.autoreview.json` and every folder's file from the pull request's base rather than its head, so a pull request can't add checks to run or loosen the ones its fixes answer to. A folder it moves keeps its checks where it went only when its file moves with it unchanged; otherwise, while the folder is gone, every fix fails the folder's checks, and is deferred.
+- `--config <file>` uses your own file as the root config instead of the repository's. Folder files still come from the repository, so pass `--trusted-config` too.
+- `--notice <text>` opens every review, comment and reply with your text, on one line starting with 🤖, such as who runs autoreview and why. Use it when autoreview posts as you, so readers don't take its comments for your own review.
+
+Agents still run with every tool allowed and read the repository's instructions from the head, so run it only where that's acceptable, such as a sandboxed machine.
+
 ## Development
 
 The tool is TypeScript run directly by Node's type stripping (Node 22.20 or later), with no build step and no runtime dependencies. Avoid syntax that stripping rejects: enums, namespaces, and constructor parameter properties.

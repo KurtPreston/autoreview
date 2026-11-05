@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join, posix } from "node:path";
+import type { Checkout } from "./git.ts";
 
 /** Reasoning effort levels the Copilot CLI accepts. */
 export const EFFORTS = ["none", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
@@ -86,6 +87,38 @@ export async function loadConfig(repoDir: string): Promise<Config> {
     throw error;
   }
   return parseConfig(JSON.parse(text));
+}
+
+/** Read the root config as it is at a commit, or the defaults when it has none there. */
+export async function loadConfigAt(checkout: Checkout, sha: string): Promise<Config> {
+  // A commit without the file means defaults
+  const tree = await checkout.git("ls-tree", "--name-only", sha, "--", CONFIG_FILE);
+  if (tree === "") {
+    return structuredClone(DEFAULTS);
+  }
+  return parseConfig(JSON.parse(await checkout.git("show", `${sha}:${CONFIG_FILE}`)));
+}
+
+/** Read a config from a file outside the repository, such as one its operator supplies. */
+export async function loadConfigFile(path: string): Promise<Config> {
+  const text = await readFile(path, "utf8");
+
+  // Name the file when it isn't JSON, as for any other mistake in it
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch (error) {
+    throw new ConfigError((error as Error).message, path);
+  }
+  try {
+    return parseConfig(raw);
+  } catch (error) {
+    // Name the operator's file rather than the repository's
+    if (error instanceof ConfigError) {
+      throw new ConfigError(error.detail, path);
+    }
+    throw error;
+  }
 }
 
 /** Validate raw config against the schema, filling in defaults. */

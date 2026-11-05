@@ -43,10 +43,10 @@ export function readMarker(body: string): Marker | undefined {
   }
 }
 
-/** A comment's text without its header line and marker, for agents to read. */
+/** A comment's text without its header line, any notice above it, and marker, for agents to read. */
 export function plainText(body: string): string {
   return body
     .replace(PATTERN, "")
-    .replace(/^🤖 [^\n]*\n+/, "")
+    .replace(/^(🤖 [^\n]*\n+)+/, "")
     .trim();
 }

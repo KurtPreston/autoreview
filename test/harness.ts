@@ -70,6 +70,8 @@ export function setup(
     signal?: AbortSignal;
     /** Push nothing, with the diff following the checkout, as `--dry-run` does. */
     dryRun?: boolean;
+    /** Read folder configs from the pull request's base, as `--trusted-config` does. */
+    trustBase?: boolean;
   } = {},
 ): Setup {
   const { origin, work } = repository();
@@ -133,6 +135,7 @@ export function setup(
       push: !options.dryRun,
       heavy: false,
       force: false,
+      configSha: options.trustBase ? store.pr.baseSha : undefined,
       signal: options.signal,
       log: () => {},
     });
