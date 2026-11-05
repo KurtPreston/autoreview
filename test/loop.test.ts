@@ -72,7 +72,7 @@ function setup(
       author: "kurt",
       draft: false,
       state: "open",
-      labels: ["autoreview"],
+      labels: ["autoreview", "autofix"],
       headRef: "ferns",
       headBranch: "ferns",
       headSha: git(work, "rev-parse", "HEAD"),
@@ -578,4 +578,79 @@ test("both labels clear once the deferral is settled and the decision answered",
   assert.deepEqual([later.decided, later.deferred], [0, 0]);
   assert.ok(!both.store.pr.labels.includes("needs-author"));
   assert.ok(!both.store.pr.labels.includes("author-review"));
+});
+
+/** An open finding from an earlier review, on a.ts line 2. */
+function seedFinding(store: Store): void {
+  store.threads.push({
+    id: "2",
+    key,
+    path: "a.ts",
+    line: 2,
+    side: "new",
+    resolved: false,
+    comments: [
+      {
+        id: 2,
+        author: "reviewer-bot",
+        body: compose("x", "Overflow.", { role: "reviewer", kind: "finding" }),
+        createdAt: "",
+      },
+    ],
+  });
+}
+
+test("with only autoreview, findings wait for the author until their commits settle them", async () => {
+  const reviewOnly = setup(
+    { review: [{ summary: "One problem.", findings: [finding] }], verify: [verdict("resolved")] },
+    { seed: (store) => (store.pr.labels = ["autoreview"]) },
+  );
+  const first = await reviewOnly.run();
+  assert.equal(reviewOnly.calls.fix, 0);
+  assert.equal(first.deferred, 1);
+  assert.match(reviewOnly.store.comments.at(-1)?.body ?? "", /For you to decide:[\s\S]*a\.ts:2/);
+  assert.ok(reviewOnly.store.pr.labels.includes("needs-author"));
+
+  // The author's commit settles the finding, and the reviewer resolves it
+  authorCommits(reviewOnly, "Math.min(n * 2, LIMIT)");
+  const later = await reviewOnly.run();
+  assert.equal(reviewOnly.calls.verify, 1);
+  assert.equal(status(reviewOnly.store.threads[0]), "resolved");
+  assert.equal(later.deferred, 0);
+  assert.ok(!reviewOnly.store.pr.labels.includes("needs-author"));
+});
+
+test("with only autofix, the fixer answers open threads, unverified, and reviews nothing", async () => {
+  const fixOnly = setup(
+    { fix: [fix("Math.min(n * 2, MAX)")], verify: [verdict("resolved")] },
+    {
+      seed: (store) => {
+        store.pr.labels = ["autofix"];
+        seedFinding(store);
+      },
+    },
+  );
+  const outcome = await fixOnly.run();
+  assert.deepEqual([fixOnly.reviews.length, fixOnly.calls.fix, fixOnly.calls.verify], [0, 1, 0]);
+  assert.equal(outcome.commits.length, 1);
+  assert.equal(outcome.waiting, 1);
+
+  // The answer stands in the open thread, and the fixer posts the summary
+  const [thread] = fixOnly.store.threads;
+  assert.equal(thread.resolved, false);
+  assert.equal(status(thread), "verify");
+  const summary = fixOnly.store.comments.at(-1);
+  assert.equal(summary?.author, "fixer-bot");
+  assert.equal(readMarker(summary?.body ?? "")?.role, "fixer");
+  assert.match(summary?.body ?? "", /left open for the commenter:[\s\S]*a\.ts:2/);
+
+  // Adding autoreview later reviews the whole pull request, since the fixer's summary isn't a
+  // review, and verifies the fixer's answer
+  fixOnly.store.pr.labels.push("autoreview");
+  fixOnly.store.pr.headSha = git(fixOnly.work, "rev-parse", "HEAD");
+  fixOnly.store.diff = git(fixOnly.work, "diff", "main...HEAD");
+  const later = await fixOnly.run();
+  assert.equal(fixOnly.reviews.length, 1);
+  assert.match(fixOnly.reviews[0], /\+export function grow[\s\S]*Math\.min/);
+  assert.equal(later.resolved, 1);
 });

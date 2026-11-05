@@ -34,10 +34,11 @@ export interface Config {
   /** Files and directories the agents should read for the project's conventions. */
   context: string[];
   /**
-   * The label that asks for a review, the one marking threads left to the author, and the
-   * one marking decisions made for the author to look over.
+   * The labels that ask for the reviewer and the fixer, the one marking threads left to the
+   * author, and the one marking decisions made for the author to look over.
    */
-  label: string;
+  reviewLabel: string;
+  fixLabel: string;
   deferLabel: string;
   decisionLabel: string;
   /** How long one agent call may run. */
@@ -61,7 +62,8 @@ export const DEFAULTS: Config = {
   maxRounds: 3,
   maxExchanges: 2,
   context: ["AGENTS.md"],
-  label: "autoreview",
+  reviewLabel: "autoreview",
+  fixLabel: "autofix",
   deferLabel: "needs-author",
   decisionLabel: "author-review",
   agentTimeoutMinutes: 20,
@@ -108,7 +110,8 @@ export function parseConfig(raw: unknown): Config {
     maxRounds: count(raw.maxRounds, DEFAULTS.maxRounds, "maxRounds"),
     maxExchanges: count(raw.maxExchanges, DEFAULTS.maxExchanges, "maxExchanges"),
     context: strings(raw.context, DEFAULTS.context, "context"),
-    label: text(raw.label, DEFAULTS.label, "label"),
+    reviewLabel: text(raw.reviewLabel, DEFAULTS.reviewLabel, "reviewLabel"),
+    fixLabel: text(raw.fixLabel, DEFAULTS.fixLabel, "fixLabel"),
     deferLabel: text(raw.deferLabel, DEFAULTS.deferLabel, "deferLabel"),
     decisionLabel: text(raw.decisionLabel, DEFAULTS.decisionLabel, "decisionLabel"),
     agentTimeoutMinutes: count(

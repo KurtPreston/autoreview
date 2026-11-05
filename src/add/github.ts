@@ -57,7 +57,12 @@ export async function addGitHub(remote: Remote, options: AddOptions): Promise<vo
   await writeNew(join(repo, CONFIG_FILE), `${JSON.stringify(config, null, 2)}\n`, log);
 
   // Labels; the workflow's token posts, so there are no bots or secrets to set up
-  const labels = [DEFAULTS.label, DEFAULTS.deferLabel, DEFAULTS.decisionLabel];
+  const labels = [
+    DEFAULTS.reviewLabel,
+    DEFAULTS.fixLabel,
+    DEFAULTS.deferLabel,
+    DEFAULTS.decisionLabel,
+  ];
   for (const label of labels) {
     await github.ensureLabel(label);
   }

@@ -1,11 +1,11 @@
 import type { Usage } from "./agent.ts";
 import type { Config } from "./config.ts";
-import type { Forge } from "./forge.ts";
+import type { Forge, PullRequest } from "./forge.ts";
 import type { Checkout } from "./git.ts";
 import { fixRound } from "./fix.ts";
-import { newChanges, recheckDeferred, reviewNew } from "./review.ts";
+import { newChanges, recheck, reviewNew } from "./review.ts";
 import type { Answer, Review, Verification } from "./schemas.ts";
-import { status } from "./status.ts";
+import { status, type Status } from "./status.ts";
 import { summarise } from "./summary.ts";
 import { notice } from "./threads.ts";
 import { verifyRound } from "./verify.ts";
@@ -39,9 +39,20 @@ export interface Deliberation {
   push: boolean;
   /** Run heavy checks too: the runner can afford them. */
   heavy: boolean;
-  /** Review even without the label, or on a draft or closed pull request. */
+  /** Deliberate even without a label (as both roles), or on a draft or closed pull request. */
   force: boolean;
   log: (message: string) => void;
+}
+
+/** Which roles a run plays: the reviewer for one label, the fixer for the other. */
+export interface Roles {
+  review: boolean;
+  fix: boolean;
+}
+
+/** A deliberation under way, with the roles its labels ask for. */
+export interface Run extends Deliberation {
+  roles: Roles;
 }
 
 export interface Outcome {
@@ -54,26 +65,41 @@ export interface Outcome {
   deferred: number;
   /** Threads a person has joined, left to them. */
   human: number;
+  /** Threads the fixer answered that wait on someone else, with no reviewer to verify them. */
+  waiting: number;
   commits: string[];
 }
 
 /** Run the deliberation on a pull request until every thread is resolved or deferred. */
-export async function deliberate(run: Deliberation): Promise<Outcome> {
-  const { number, config, checkout } = run;
-  const outcome: Outcome = { resolved: 0, decided: 0, deferred: 0, human: 0, commits: [] };
-  const pr = await run.reviewer.pullRequest(number);
+export async function deliberate(input: Deliberation): Promise<Outcome> {
+  const { number, config, checkout } = input;
+  const outcome: Outcome = {
+    resolved: 0,
+    decided: 0,
+    deferred: 0,
+    human: 0,
+    waiting: 0,
+    commits: [],
+  };
+  const pr = await input.reviewer.pullRequest(number);
 
-  // Only open pull requests that ask for it, and not drafts
-  if (!run.force && pr.state !== "open") {
+  // Only open pull requests that ask for a role, and not drafts
+  if (!input.force && pr.state !== "open") {
     return { ...outcome, skipped: "the pull request is closed" };
   }
-  if (!run.force && pr.draft) {
+  if (!input.force && pr.draft) {
     return { ...outcome, skipped: "the pull request is a draft" };
   }
-  if (!run.force && !pr.labels.includes(config.label)) {
-    return { ...outcome, skipped: `the pull request isn't labelled ${config.label}` };
+  const roles = rolesFor(pr, input);
+  if (!roles.review && !roles.fix) {
+    return {
+      ...outcome,
+      skipped: `the pull request isn't labelled ${config.reviewLabel} or ${config.fixLabel}`,
+    };
   }
-  if (run.push && !pr.headBranch) {
+
+  // The fixer needs a branch to push to, and every role a clean checkout at the head
+  if (roles.fix && input.push && !pr.headBranch) {
     return {
       ...outcome,
       skipped: "fixes can't be pushed: the head isn't a branch of this repository",
@@ -82,17 +108,20 @@ export async function deliberate(run: Deliberation): Promise<Outcome> {
   if ((await checkout.head()) !== pr.headSha || (await checkout.dirty())) {
     throw new Error(`the checkout must be clean at the pull request's head ${pr.headSha}`);
   }
+  const run: Run = { ...input, roles };
 
-  // Recheck what the author's new commits settle, review them, then deliberate in rounds
-  const changes = await newChanges(run, pr);
+  // Recheck what the author's new commits settle, and review them
+  const changes = roles.review ? await newChanges(run, pr) : undefined;
   if (changes?.last) {
-    await recheckDeferred(run, pr, { last: changes.last, diff: changes.diff });
+    await recheck(run, pr, { last: changes.last, diff: changes.diff });
   }
   const reviewed = changes ? await reviewNew(run, pr, changes) : false;
+
+  // Deliberate in rounds while a role has a move to make
   let rounds = 0;
   for (let round = 1; round <= config.maxRounds; round++) {
     const threads = await run.reviewer.threads(number);
-    const waiting = threads.filter((t) => ["fix", "verify"].includes(status(t)));
+    const waiting = threads.filter((t) => hasMove(run, status(t)));
     if (waiting.length === 0) {
       break;
     }
@@ -101,11 +130,15 @@ export async function deliberate(run: Deliberation): Promise<Outcome> {
 
     // The fixer answers, then the reviewer judges the answers
     const start = await checkout.head();
-    const stopped = await fixRound(run, pr, outcome);
-    if (stopped) {
-      return { ...outcome, stopped };
+    if (roles.fix) {
+      const stopped = await fixRound(run, pr, outcome);
+      if (stopped) {
+        return { ...outcome, stopped };
+      }
     }
-    await verifyRound(run, pr, start);
+    if (roles.review) {
+      await verifyRound(run, pr, start);
+    }
   }
 
   // A run with nothing to do posts nothing, so unrelated events stay quiet
@@ -115,7 +148,7 @@ export async function deliberate(run: Deliberation): Promise<Outcome> {
 
   // Threads still open at the round cap go to the author
   for (const thread of await run.reviewer.threads(number)) {
-    if (["fix", "verify"].includes(status(thread))) {
+    if (hasMove(run, status(thread))) {
       await notice(
         run,
         thread,
@@ -125,4 +158,21 @@ export async function deliberate(run: Deliberation): Promise<Outcome> {
   }
   await summarise(run, pr, outcome);
   return outcome;
+}
+
+/** The roles a pull request's labels ask for; forcing one with neither plays both. */
+function rolesFor(pr: PullRequest, { config, force }: Deliberation): Roles {
+  const roles = {
+    review: pr.labels.includes(config.reviewLabel),
+    fix: pr.labels.includes(config.fixLabel),
+  };
+  if (force && !roles.review && !roles.fix) {
+    return { review: true, fix: true };
+  }
+  return roles;
+}
+
+/** Whether a role this run plays has a move to make in a thread. */
+function hasMove(run: Run, state: Status): boolean {
+  return (run.roles.fix && state === "fix") || (run.roles.review && state === "verify");
 }

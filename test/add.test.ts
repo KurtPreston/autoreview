@@ -163,6 +163,7 @@ test("on GitHub, the workflow uses the workflow's token, and checks are started 
   assert.ok(workflow.includes(`uses: ${new URL(ACTION).pathname.slice(1)}@v1\n`));
   assert.match(workflow, /copilot-requests: write/);
   assert.match(workflow, /head\.repo\.full_name == github\.repository/);
+  assert.match(workflow, /'autoreview'\) \|\|\n\s+contains\([^)]*'autofix'\)/);
   assert.doesNotMatch(workflow, /\{\{\w+\}\}/);
   assert.match(
     workflow,
@@ -177,7 +178,7 @@ test("on GitHub, the workflow uses the workflow's token, and checks are started 
   // Only the missing labels are created, and no bots or secrets
   assert.deepEqual(
     calls.filter((call) => call.startsWith("POST")),
-    ["POST api.github.com/repos/o/r/labels", "POST api.github.com/repos/o/r/labels"],
+    Array(3).fill("POST api.github.com/repos/o/r/labels"),
   );
 });
 

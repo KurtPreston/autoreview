@@ -22,7 +22,7 @@ const USAGE = `usage:
   --checkout  deliberate in this checkout (CI); otherwise a temporary worktree of --repo
   --dry-run   print what would be posted, and push nothing
   --heavy     also run heavyChecks: the machine can afford them
-  --force     review even without the label, or on a draft or closed pull request
+  --force     deliberate even without a label (as both roles), or on a draft or closed pull request
 
 Tokens: AUTOREVIEW_REVIEWER_TOKEN and AUTOREVIEW_FIXER_TOKEN post as two
 identities. Otherwise one identity posts as both: on GitHub, GITHUB_TOKEN, GH_TOKEN

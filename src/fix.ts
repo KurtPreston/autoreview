@@ -1,6 +1,6 @@
 /** The fixer's round: answering threads, checking and committing fixes. */
 import type { PullRequest, Thread } from "./forge.ts";
-import type { Deliberation, Outcome } from "./loop.ts";
+import type { Outcome, Run } from "./loop.ts";
 import { compose, type Marker } from "./markers.ts";
 import { common, modeText, render } from "./prompts.ts";
 import type { Answer } from "./schemas.ts";
@@ -9,7 +9,7 @@ import { decisionText, describe, exchanges, notice, ruled } from "./threads.ts";
 
 /** The fixer answers each waiting thread; fixes are checked, committed and pushed together. */
 export async function fixRound(
-  run: Deliberation,
+  run: Run,
   pr: PullRequest,
   outcome: Outcome,
 ): Promise<string | undefined> {
@@ -69,7 +69,7 @@ export async function fixRound(
 }
 
 /** Run the checks on a fix; a failing fix gets one more try, then is dropped and deferred. */
-export async function checked(run: Deliberation, task: string, answer: Answer): Promise<Answer> {
+export async function checked(run: Run, task: string, answer: Answer): Promise<Answer> {
   let failure = await failingCheck(run);
   if (!failure) {
     return answer;
@@ -99,7 +99,7 @@ export async function checked(run: Deliberation, task: string, answer: Answer): 
 }
 
 /** The first check that fails, with its output, or undefined when all pass. */
-export async function failingCheck(run: Deliberation): Promise<string | undefined> {
+export async function failingCheck(run: Run): Promise<string | undefined> {
   if (!(await run.checkout.dirty())) {
     return undefined;
   }
@@ -112,18 +112,18 @@ export async function failingCheck(run: Deliberation): Promise<string | undefine
   return undefined;
 }
 
-export function checks(run: Deliberation): string[] {
+export function checks(run: Run): string[] {
   return [...run.config.checks, ...(run.heavy ? run.config.heavyChecks : [])];
 }
 
-export function checksList(run: Deliberation): string {
+export function checksList(run: Run): string {
   const list = checks(run);
   return list.length > 0 ? list.map((command) => `\`${command}\``).join(", ") : "(none configured)";
 }
 
 /** Post the fixer's answer in its thread. */
 export async function answerThread(
-  run: Deliberation,
+  run: Run,
   { thread, answer, commit }: { thread: Thread; answer: Answer; commit?: string },
 ): Promise<void> {
   const label = { fix: `fixed in ${commit?.slice(0, 7)}`, reply: "reply", defer: "for the author" }[

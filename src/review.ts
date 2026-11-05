@@ -1,22 +1,25 @@
 /** The reviewer's passes: rechecking deferrals against new commits, and reviewing them. */
 import type { NewComment, PullRequest } from "./forge.ts";
 import { changedFiles, diffLines } from "./git.ts";
-import type { Deliberation } from "./loop.ts";
+import type { Run } from "./loop.ts";
 import { compose, readMarker, type Marker } from "./markers.ts";
 import { clip, common, modeText, render } from "./prompts.ts";
 import type { Finding } from "./schemas.ts";
 import { status } from "./status.ts";
-import { describe, DIFF_LIMIT, tidy } from "./threads.ts";
+import { describe, DIFF_LIMIT, forAuthor, tidy } from "./threads.ts";
 
 const MAX_FINDINGS = 10;
 
 /** Changes since the last run, or the whole pull request on the first; undefined when none. */
 export async function newChanges(
-  run: Deliberation,
+  run: Run,
   pr: PullRequest,
 ): Promise<{ last?: string; diff: string } | undefined> {
+  // Only the reviewer's reviews and summaries count: a fixer-only run reviewed nothing
   const markers = (await run.reviewer.comments(run.number)).map((c) => readMarker(c.body));
-  const last = markers.filter((m) => m?.kind === "review" || m?.kind === "summary").at(-1)?.head;
+  const last = markers
+    .filter((m) => m?.role === "reviewer" && (m.kind === "review" || m.kind === "summary"))
+    .at(-1)?.head;
   if (last === pr.headSha) {
     run.log("no new commits to review");
     return undefined;
@@ -38,19 +41,21 @@ export async function newChanges(
 }
 
 /**
- * Ask the reviewer whether the author's new commits settle any deferred thread, and resolve
- * those. Agents never reopen a deferral; only the author's changes can settle one.
+ * Ask the reviewer whether the author's new commits settle any thread left to them, and
+ * resolve those. Agents never reopen a deferral; only the author's changes can settle one.
+ * Without the fixer, every open finding is the author's.
  */
-export async function recheckDeferred(
-  run: Deliberation,
+export async function recheck(
+  run: Run,
   pr: PullRequest,
   { last, diff }: { last: string; diff: string },
 ): Promise<void> {
-  const deferred = (await run.reviewer.threads(run.number)).filter((t) => status(t) === "deferred");
+  const threads = await run.reviewer.threads(run.number);
+  const deferred = threads.filter((t) => forAuthor(run, status(t)));
   if (deferred.length === 0) {
     return;
   }
-  run.log(`rechecking ${deferred.length} deferred threads`);
+  run.log(`rechecking ${deferred.length} threads left to the author`);
 
   // Ask for a verdict on each, with the new commits
   const task = render("recheck", {
@@ -83,7 +88,7 @@ export async function recheckDeferred(
 
 /** Review the changes since the last run, or the whole pull request on the first. */
 export async function reviewNew(
-  run: Deliberation,
+  run: Run,
   pr: PullRequest,
   { last, diff }: { last?: string; diff: string },
 ): Promise<boolean> {
@@ -125,7 +130,7 @@ export async function reviewNew(
  * the rest, which can't be anchored, or would land in an existing conversation.
  */
 export async function postFindings(
-  run: Deliberation,
+  run: Run,
   pr: PullRequest,
   { findings, anchors }: { findings: Finding[]; anchors: Map<string, Set<number>> },
 ): Promise<string[]> {

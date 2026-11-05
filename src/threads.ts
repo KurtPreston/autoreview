@@ -1,7 +1,8 @@
 /** Helpers for reading and posting in threads, shared by the deliberation's steps. */
-import type { Deliberation } from "./loop.ts";
-import type { Thread } from "./forge.ts";
-import { compose, plainText, readMarker, type Marker } from "./markers.ts";
+import type { Run } from "./loop.ts";
+import type { Forge, Thread } from "./forge.ts";
+import { compose, plainText, readMarker, type Marker, type Role } from "./markers.ts";
+import type { Status } from "./status.ts";
 import type { Decision } from "./schemas.ts";
 
 /** How much diff an agent's task carries before it is cut. */
@@ -19,7 +20,7 @@ export function ruled(thread: Thread): boolean {
 }
 
 /** In best-effort mode, tells the reviewer a thread can't go back for more discussion. */
-export function finalNote(run: Deliberation, thread: Thread): string {
+export function finalNote(run: Run, thread: Thread): string {
   if (run.config.defer !== "best-effort" || exchanges(thread) < run.config.maxExchanges) {
     return "";
   }
@@ -31,14 +32,23 @@ export function decisionText(decision: Decision): string {
   return `**Decision, for the author to review:** ${decision.chose}\n\n**Alternative:** ${decision.alternative}`;
 }
 
-/** A deferral the loop makes itself, posted as the reviewer. */
-export async function notice(run: Deliberation, thread: Thread, text: string): Promise<void> {
-  const marker: Marker = { role: "reviewer", kind: "verdict", value: "defer", deferred: true };
-  await run.reviewer.reply(
-    run.number,
-    thread,
-    compose("**Autoreview** · for the author", text, marker),
-  );
+/** Who speaks for autoreview itself: the reviewer when it's on, otherwise the fixer. */
+export function voice(run: Run): { forge: Forge; role: Role } {
+  return run.roles.review
+    ? { forge: run.reviewer, role: "reviewer" }
+    : { forge: run.fixer, role: "fixer" };
+}
+
+/** Whether a thread waits on the author: deferred, or, with no fixer, any open finding. */
+export function forAuthor(run: Run, state: Status): boolean {
+  return state === "deferred" || (!run.roles.fix && (state === "fix" || state === "human"));
+}
+
+/** A deferral the loop makes itself, posted in autoreview's own voice. */
+export async function notice(run: Run, thread: Thread, text: string): Promise<void> {
+  const { forge, role } = voice(run);
+  const marker: Marker = { role, kind: "verdict", value: "defer", deferred: true };
+  await forge.reply(run.number, thread, compose("**Autoreview** · for the author", text, marker));
 }
 
 /** A thread's history as agents read it: who said what, in order. */
@@ -55,7 +65,7 @@ export function describe(thread: Thread): string {
 }
 
 /** Throw away anything a read-only agent changed. */
-export async function tidy(run: Deliberation): Promise<void> {
+export async function tidy(run: Run): Promise<void> {
   if (await run.checkout.dirty()) {
     run.log("discarding changes a reviewer made");
     await run.checkout.discard();

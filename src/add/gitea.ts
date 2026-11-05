@@ -49,7 +49,12 @@ export async function addGitea(remote: Remote, options: AddOptions): Promise<voi
   );
 
   // Labels, and the bots as collaborators (Gitea adds them without an invitation)
-  const labels = [DEFAULTS.label, DEFAULTS.deferLabel, DEFAULTS.decisionLabel];
+  const labels = [
+    DEFAULTS.reviewLabel,
+    DEFAULTS.fixLabel,
+    DEFAULTS.deferLabel,
+    DEFAULTS.decisionLabel,
+  ];
   for (const label of labels) {
     await gitea.ensureLabel(label);
   }

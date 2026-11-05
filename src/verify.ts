@@ -1,7 +1,7 @@
 /** The reviewer's judgement of the fixer's answers. */
 import type { PullRequest } from "./forge.ts";
 import { diffLines } from "./git.ts";
-import type { Deliberation } from "./loop.ts";
+import type { Run } from "./loop.ts";
 import { compose, type Marker } from "./markers.ts";
 import { clip, common, modeText, render } from "./prompts.ts";
 import { postFindings } from "./review.ts";
@@ -9,11 +9,7 @@ import { status } from "./status.ts";
 import { decisionText, describe, DIFF_LIMIT, finalNote, tidy } from "./threads.ts";
 
 /** The reviewer judges every answered thread at once, and checks this round's changes. */
-export async function verifyRound(
-  run: Deliberation,
-  pr: PullRequest,
-  start: string,
-): Promise<void> {
+export async function verifyRound(run: Run, pr: PullRequest, start: string): Promise<void> {
   const waiting = (await run.reviewer.threads(run.number)).filter((t) => status(t) === "verify");
   if (waiting.length === 0) {
     return;
