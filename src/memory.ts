@@ -64,8 +64,10 @@ export class MemoryForge implements Forge {
     for (const comment of review.comments) {
       const key = threadKey(comment.path, comment.line, "new");
       let thread = this.store.threads.find((t) => t.key === key);
+      const posted = this.#comment(comment.body);
       if (!thread) {
         thread = {
+          id: String(posted.id),
           key,
           path: comment.path,
           line: comment.line,
@@ -75,7 +77,7 @@ export class MemoryForge implements Forge {
         };
         this.store.threads.push(thread);
       }
-      thread.comments.push(this.#comment(comment.body));
+      thread.comments.push(posted);
     }
     // Also like Gitea, the review's own body isn't a conversation comment
     this.#log(
@@ -115,7 +117,7 @@ export class MemoryForge implements Forge {
   }
 
   #thread(thread: Thread): Thread {
-    const found = this.store.threads.find((t) => t.key === thread.key);
+    const found = this.store.threads.find((t) => t.id === thread.id);
     if (!found) {
       throw new Error(`no thread ${thread.key}`);
     }

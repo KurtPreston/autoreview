@@ -119,7 +119,15 @@ export class Gitea implements Forge {
       let thread = threads.get(key);
       if (!thread) {
         // A conversation's resolution is recorded on its first comment
-        thread = { key, path: raw.path, line, side, resolved: raw.resolver !== null, comments: [] };
+        thread = {
+          id: String(raw.id),
+          key,
+          path: raw.path,
+          line,
+          side,
+          resolved: raw.resolver !== null,
+          comments: [],
+        };
         threads.set(key, thread);
       }
       thread.comments.push({
@@ -157,13 +165,13 @@ export class Gitea implements Forge {
   async reply(number: number, thread: Thread, body: string): Promise<void> {
     await this.#request(
       "POST",
-      `${this.#repo}/pulls/${number}/comments/${thread.comments[0].id}/replies`,
+      `${this.#repo}/pulls/${number}/comments/${thread.id}/replies`,
       { body },
     );
   }
 
   async resolve(thread: Thread): Promise<void> {
-    await this.#request("POST", `${this.#repo}/pulls/comments/${thread.comments[0].id}/resolve`);
+    await this.#request("POST", `${this.#repo}/pulls/comments/${thread.id}/resolve`);
   }
 
   async comment(number: number, body: string): Promise<void> {

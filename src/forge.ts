@@ -26,6 +26,8 @@ export interface Comment {
 
 /** A conversation anchored to one line of one file. */
 export interface Thread {
+  /** The forge's handle for the conversation, used to reply to and resolve it. */
+  id: string;
   /** Stable identity: the path and line, which is how hosts group a conversation. */
   key: string;
   path: string;
