@@ -254,6 +254,7 @@ test("a rerun resumes: it verifies an answered thread and reviews nothing old", 
           createdAt: "",
         });
         store.threads.push({
+          id: "2",
           key,
           path: "a.ts",
           line: 2,
@@ -291,6 +292,7 @@ test("a thread a person has joined is left to them", async () => {
       seed: (store) => {
         // A finding from an earlier review that a person has answered
         store.threads.push({
+          id: "2",
           key,
           path: "a.ts",
           line: 2,

@@ -10,6 +10,7 @@ import {
   reviewerPermissions,
   runAgent,
   type AgentCall,
+  agentEnv,
 } from "../src/agent.ts";
 import { DEFAULTS, parseConfig } from "../src/config.ts";
 import { validateAnswer, type Answer } from "../src/schemas.ts";
@@ -100,4 +101,20 @@ test("the reviewer can't write; the implementer can't push or run heavy checks",
   assert.ok(implementerPermissions(config, false).deny.includes("shell(git push)"));
   assert.ok(implementerPermissions(config, false).deny.includes("shell(npm test)"));
   assert.ok(!implementerPermissions(config, true).deny.includes("shell(npm test)"));
+});
+
+test("agents run without the tokens the loop posts with, but Copilot keeps its own", () => {
+  // In a workflow: the Copilot token is kept, and the forge tokens dropped
+  const env = agentEnv({
+    PATH: "/bin",
+    COPILOT_GITHUB_TOKEN: "copilot",
+    GITHUB_TOKEN: "workflow",
+    GITEA_TOKEN: "gitea",
+    AUTOREVIEW_IMPLEMENTER_TOKEN: "bot",
+  });
+  assert.deepEqual(env, { PATH: "/bin", COPILOT_GITHUB_TOKEN: "copilot" });
+
+  // Locally, a GitHub token the CLI would have signed in with is handed over
+  assert.deepEqual(agentEnv({ GH_TOKEN: "mine" }), { COPILOT_GITHUB_TOKEN: "mine" });
+  assert.deepEqual(agentEnv({ HOME: "/h" }), { HOME: "/h" });
 });

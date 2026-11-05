@@ -111,10 +111,10 @@ test("review comments group into threads by path and line, oldest first", async 
 
   // Two threads: a.ts line 3 (resolved, with a reply), and b.ts old line 9
   assert.deepEqual(
-    threads.map((t) => [t.key, t.resolved, t.comments.map((c) => c.id)]),
+    threads.map((t) => [t.id, t.key, t.resolved, t.comments.map((c) => c.id)]),
     [
-      ["a.ts:+3", true, [10, 12]],
-      ["b.ts:-9", false, [11]],
+      ["10", "a.ts:+3", true, [10, 12]],
+      ["11", "b.ts:-9", false, [11]],
     ],
   );
   assert.equal(threads[1].side, "old");
@@ -130,6 +130,7 @@ test("writes go to the right endpoints with the right bodies", async () => {
     "DELETE /repos/o/r/issues/7/labels/5": "",
   });
   const thread = {
+    id: "10",
     key: "a.ts:+3",
     path: "a.ts",
     line: 3,
@@ -163,4 +164,10 @@ test("writes go to the right endpoints with the right bodies", async () => {
 test("errors carry the server's message", async () => {
   const { forge } = stub({});
   await assert.rejects(forge.login(), /Gitea GET \/user: 404 not found/);
+});
+
+test("a workflow is started on a branch through the dispatch API", async () => {
+  const { forge, calls } = stub({ "POST /repos/o/r/actions/workflows/checks.yml/dispatches": "" });
+  await forge.dispatch("checks.yml", "ferns");
+  assert.deepEqual(calls[0].body, { ref: "ferns" });
 });

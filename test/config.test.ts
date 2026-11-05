@@ -44,3 +44,9 @@ test("a repository without a config file gets the defaults", async () => {
   await writeFile(join(dir, ".autoreview.json"), JSON.stringify({ visual: true }));
   assert.equal((await loadConfig(dir)).visual, true);
 });
+
+test("workflows to start after a fix are listed by file name", () => {
+  assert.deepEqual(DEFAULTS.dispatch, []);
+  assert.deepEqual(parseConfig({ dispatch: ["checks.yml"] }).dispatch, ["checks.yml"]);
+  assert.throws(() => parseConfig({ dispatch: "checks.yml" }), ConfigError);
+});

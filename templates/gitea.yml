@@ -23,7 +23,7 @@ jobs:
           fetch-depth: 0
 {{setup}}{{setupActions}}
       # Deliberate: review, fix and reply, and defer what's for the author
-      - uses: {{action}}@{{ref}}
+      - uses: {{uses}}
         with:
           copilot-token: ${{ secrets.COPILOT_GITHUB_TOKEN }}
           reviewer-token: ${{ secrets.AUTOREVIEW_REVIEWER_TOKEN }}

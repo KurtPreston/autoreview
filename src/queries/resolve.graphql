@@ -1,0 +1,8 @@
+# Mark a review thread resolved, for the GitHub forge.
+mutation ($thread: ID!) {
+  resolveReviewThread(input: { threadId: $thread }) {
+    thread {
+      id
+    }
+  }
+}

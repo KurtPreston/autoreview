@@ -7,12 +7,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { loadConfig } from "./config.ts";
-import type { Forge } from "./forge.ts";
 import { Checkout } from "./git.ts";
-import { Gitea } from "./gitea.ts";
+import { forges } from "./forges.ts";
 import { copilotAgents, deliberate } from "./loop.ts";
 import { MemoryForge, snapshot } from "./memory.ts";
-import { findToken, parseRemote, type Remote } from "./remote.ts";
+import { parseRemote, type Remote } from "./remote.ts";
+import { dispatchAfterPush, ownPush } from "./trigger.ts";
 
 const USAGE = `usage:
   autoreview run --pr <n> [--repo <dir>] [--checkout <dir>] [--dry-run] [--heavy] [--force]
@@ -25,7 +25,9 @@ const USAGE = `usage:
   --force     review even without the label, or on a draft or closed pull request
 
 Tokens: AUTOREVIEW_REVIEWER_TOKEN and AUTOREVIEW_IMPLEMENTER_TOKEN post as two
-identities; otherwise GITEA_TOKEN, or tea's login, posts as one.`;
+identities. Otherwise one identity posts as both: on GitHub, GITHUB_TOKEN, GH_TOKEN
+or gh's login; on Gitea, GITEA_TOKEN or tea's login. AUTOREVIEW_FORGE=github|gitea
+overrides which forge the origin is taken to be.`;
 
 async function main(): Promise<void> {
   const { positionals, values } = parseArgs({
@@ -61,13 +63,6 @@ async function main(): Promise<void> {
     return;
   }
 
-  // A run started by the implementer's own push has nothing to do
-  const sender = process.env.AUTOREVIEW_SENDER;
-  if (sender && sender === (await implementer.login().catch(() => undefined))) {
-    console.error(`autoreview: skipped, since ${sender}'s own push started this run`);
-    return;
-  }
-
   // A dry run plays the deliberation against a copy of the pull request in memory
   const dryRun = values["dry-run"];
   let roles = { reviewer, implementer };
@@ -89,6 +84,11 @@ async function main(): Promise<void> {
     sha: head.headSha,
   });
   try {
+    // A run started by autoreview's own push has nothing to do
+    if (await ownPush(checkout, head.headSha)) {
+      console.error("autoreview: skipped, since autoreview's own push started this run");
+      return;
+    }
     const config = await loadConfig(checkout.dir);
     const usage = {};
     const outcome = await deliberate({
@@ -104,6 +104,16 @@ async function main(): Promise<void> {
       log: (message) => console.error(`autoreview: ${message}`),
     });
     console.error(`autoreview: ${JSON.stringify(outcome)}`);
+
+    // Pushes with a workflow's own token start no checks, so start the configured ones
+    if (!dryRun && outcome.commits.length > 0) {
+      await dispatchAfterPush({
+        forge: roles.implementer,
+        workflows: config.dispatch,
+        branch: head.headBranch,
+        log: (message) => console.error(`autoreview: ${message}`),
+      });
+    }
   } finally {
     await cleanup();
   }
@@ -120,26 +130,6 @@ function findRemote(repo: string): Remote {
     encoding: "utf8",
   }).trim();
   return parseRemote(origin);
-}
-
-/** One forge per role when both bot tokens are set, otherwise one shared identity. */
-async function forges(remote: Remote): Promise<{ reviewer: Forge; implementer: Forge }> {
-  const { AUTOREVIEW_REVIEWER_TOKEN: reviewer, AUTOREVIEW_IMPLEMENTER_TOKEN: implementer } =
-    process.env;
-  if (reviewer && implementer) {
-    return {
-      reviewer: new Gitea({ ...remote, token: reviewer }),
-      implementer: new Gitea({ ...remote, token: implementer }),
-    };
-  }
-  const token = await findToken(remote.url);
-  if (!token) {
-    throw new Error(
-      `no token for ${remote.url}: set the AUTOREVIEW_* tokens or GITEA_TOKEN, or log in with tea`,
-    );
-  }
-  const shared = new Gitea({ ...remote, token });
-  return { reviewer: shared, implementer: shared };
 }
 
 /**

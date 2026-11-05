@@ -119,7 +119,15 @@ export class Gitea implements Forge {
       let thread = threads.get(key);
       if (!thread) {
         // A conversation's resolution is recorded on its first comment
-        thread = { key, path: raw.path, line, side, resolved: raw.resolver !== null, comments: [] };
+        thread = {
+          id: String(raw.id),
+          key,
+          path: raw.path,
+          line,
+          side,
+          resolved: raw.resolver !== null,
+          comments: [],
+        };
         threads.set(key, thread);
       }
       thread.comments.push({
@@ -155,15 +163,13 @@ export class Gitea implements Forge {
   }
 
   async reply(number: number, thread: Thread, body: string): Promise<void> {
-    await this.#request(
-      "POST",
-      `${this.#repo}/pulls/${number}/comments/${thread.comments[0].id}/replies`,
-      { body },
-    );
+    await this.#request("POST", `${this.#repo}/pulls/${number}/comments/${thread.id}/replies`, {
+      body,
+    });
   }
 
   async resolve(thread: Thread): Promise<void> {
-    await this.#request("POST", `${this.#repo}/pulls/comments/${thread.comments[0].id}/resolve`);
+    await this.#request("POST", `${this.#repo}/pulls/comments/${thread.id}/resolve`);
   }
 
   async comment(number: number, body: string): Promise<void> {
@@ -181,6 +187,11 @@ export class Gitea implements Forge {
       "DELETE",
       `${this.#repo}/issues/${number}/labels/${await this.#labelId(name)}`,
     );
+  }
+
+  async dispatch(workflow: string, ref: string): Promise<void> {
+    const path = `${this.#repo}/actions/workflows/${encodeURIComponent(workflow)}/dispatches`;
+    await this.#request("POST", path, { ref });
   }
 
   /** Create a repository label unless it exists. Used when enabling a repository. */

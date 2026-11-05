@@ -42,6 +42,11 @@ export interface Config {
   decisionLabel: string;
   /** How long one agent call may run. */
   agentTimeoutMinutes: number;
+  /**
+   * Workflow files to start on the head branch after a run pushes fixes, since pushes
+   * made with a workflow's own token start no workflows.
+   */
+  dispatch: string[];
 }
 
 export const CONFIG_FILE = ".autoreview.json";
@@ -60,6 +65,7 @@ export const DEFAULTS: Config = {
   deferLabel: "needs-author",
   decisionLabel: "author-review",
   agentTimeoutMinutes: 20,
+  dispatch: [],
 };
 
 /** Read a repository's config, or the defaults when it has none. */
@@ -110,6 +116,7 @@ export function parseConfig(raw: unknown): Config {
       DEFAULTS.agentTimeoutMinutes,
       "agentTimeoutMinutes",
     ),
+    dispatch: strings(raw.dispatch, DEFAULTS.dispatch, "dispatch"),
   };
 }
 

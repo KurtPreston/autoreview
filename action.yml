@@ -3,8 +3,11 @@ description: Two Copilot CLI agents deliberate a pull request. One reviews; the 
 
 inputs:
   copilot-token:
-    description: A GitHub token with the "Copilot Requests" permission, for the Copilot CLI.
-    required: true
+    description: >-
+      A GitHub token the Copilot CLI may use. On GitHub, the workflow's own token works when the
+      job has the copilot-requests permission, billing the organization; on Gitea, pass a GitHub
+      token with the "Copilot Requests" permission.
+    default: ${{ github.token }}
   reviewer-token:
     description: Token of the reviewer bot account. With implementer-token, each role posts as its own user.
     default: ""
@@ -54,10 +57,16 @@ runs:
         AUTOREVIEW_REVIEWER_TOKEN: ${{ inputs.reviewer-token }}
         AUTOREVIEW_IMPLEMENTER_TOKEN: ${{ inputs.implementer-token }}
         GITEA_TOKEN: ${{ inputs.token }}
-        AUTOREVIEW_SENDER: ${{ github.event.sender.login }}
+        GITHUB_TOKEN: ${{ inputs.token }}
+        AUTOREVIEW_EVENT: ${{ github.event.action }}
         PR: ${{ inputs.pr }}
         HEAVY: ${{ inputs.heavy }}
       run: |
+        # Run a copy, since a vendored action lives in the checkout the run moves to the head
+        tool="$RUNNER_TEMP/autoreview-tool"
+        rm -rf "$tool" && mkdir -p "$tool"
+        cp -R "$GITHUB_ACTION_PATH/src" "$GITHUB_ACTION_PATH/prompts" "$GITHUB_ACTION_PATH/package.json" "$tool/"
+
         args=(run --pr "$PR" --checkout "$GITHUB_WORKSPACE")
         if [[ "$HEAVY" == "true" ]]; then args+=(--heavy); fi
-        node --use-system-ca "$GITHUB_ACTION_PATH/src/autoreview.ts" "${args[@]}"
+        node --use-system-ca "$tool/src/autoreview.ts" "${args[@]}"
