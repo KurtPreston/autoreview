@@ -35,12 +35,17 @@ runs:
       with:
         node-version: 22
 
-    # Install the Copilot CLI; it reads instructions from COPILOT_HOME, which earlier steps may set
+    # Install the Copilot CLI; it reads instructions from COPILOT_HOME, which earlier steps may set.
+    # Install it into the job's own temp directory, not globally: a runner's tool cache is shared
+    # by concurrent jobs, and one job reinstalling it there unlinks `copilot` under another.
     - name: Set up the Copilot CLI
       shell: bash
       env:
         COPILOT_VERSION: ${{ inputs.copilot-version }}
-      run: npm install --global --no-fund --no-audit "@github/copilot@$COPILOT_VERSION"
+      run: |
+        prefix="${RUNNER_TEMP:-/tmp}/autoreview-copilot"
+        npm install --prefix "$prefix" --no-save --no-package-lock --no-fund --no-audit "@github/copilot@$COPILOT_VERSION"
+        echo "$prefix/node_modules/.bin" >> "$GITHUB_PATH"
 
     # Let the posting identity fetch and push, and sign commits as it
     - name: Set up git
