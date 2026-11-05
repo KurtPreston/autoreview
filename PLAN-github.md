@@ -148,4 +148,12 @@ index set).
 
 ## Obstacles
 
+- **Copilot refused the built-in token on this personal repository** ("Access denied by policy
+  settings", for every model, via both `GITHUB_TOKEN` and `COPILOT_GITHUB_TOKEN`), although the
+  docs say a personal repository bills the owner's seat. Workaround: the workflow template passes
+  `secrets.COPILOT_GITHUB_TOKEN || github.token`, so a fine-grained token with "Copilot
+  Requests" can stand in. The organization path at work is unaffected.
+- `gh auth status` in the agent's shell gets its login from `GITHUB_TOKEN`, so unsetting it for a
+  local smoke test also logs gh out. Kept the variable.
+
 ## Found bugs
