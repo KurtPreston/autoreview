@@ -1,6 +1,6 @@
 # autoreview
 
-Two agents deliberate a pull request on a Gitea runner. A **reviewer** (by default `gpt-6-astra`) comments on the change. An **implementer** (by default `claude-opus-5.5`) answers each comment: it pushes a fix, replies, or defers. They go back and forth until every thread is either:
+Two agents deliberate a pull request on a GitHub or Gitea runner. A **reviewer** (by default `gpt-6-astra`) comments on the change. An **implementer** (by default `claude-opus-5.5`) answers each comment: it pushes a fix, replies, or defers. They go back and forth until every thread is either:
 
 - **resolved**: the reviewer accepts the fix or the answer. When settling it took a judgement call, such as a trade-off or a design choice, the thread is resolved but flagged as a **decision** for you to look over, and the pull request gets the `author-review` label, or
 - **deferred** to the author: the agents truly can't settle it, for example because it turns on intent nothing in the repository reveals. The pull request gets the `needs-author` label.
@@ -11,7 +11,7 @@ Both agents run through the Copilot CLI. A run starts when a pull request carrie
 
 ## How it works
 
-A deterministic loop (`src/loop.ts`) does all the git and Gitea work. Each agent call is one `copilot -p` run that answers with a JSON verdict, which is checked against a schema (`src/schemas.ts`) and retried once if invalid. Agents never post, push or resolve anything themselves.
+A deterministic loop (`src/loop.ts`) does all the git and forge work, through a `Forge` interface (`src/forge.ts`) with GitHub and Gitea implementations. Each agent call is one `copilot -p` run that answers with a JSON verdict, which is checked against a schema (`src/schemas.ts`) and retried once if invalid. Agents never post, push or resolve anything themselves.
 
 1. **Recheck.** On a later run with new commits, the reviewer first checks each thread deferred to the author against them. Threads the commits settle are resolved. The rest stay deferred, and nothing is posted in them.
 2. **Review.** The reviewer reads the diff (on later runs, only the commits since the last one) and reports up to 10 findings. Findings on lines the diff shows become inline threads. The rest go in the review summary, for the author. In blocking mode, the reviewer can also mark a finding `forAuthor`, which defers it from the start; in best-effort mode every inline finding goes to the implementer.
@@ -56,7 +56,23 @@ A run that deliberated ends with a summary comment whose hidden marker records t
 - `author-review` present: nothing blocks, but decisions are listed for review.
 - Neither: the pull request is clean.
 
-## Setup
+## Setup on GitHub
+
+Nothing to create: both roles post and push as `github-actions[bot]` with the workflow's own token, and each comment names its role. For each repository:
+
+```sh
+git clone https://github.com/KurtPreston/autoreview.git ~/Code/autoreview
+~/Code/autoreview/add.sh path/to/repo
+```
+
+This writes `.github/workflows/autoreview.yml` and `.autoreview.json` (existing files are kept) and creates the `autoreview`, `needs-author` and `author-review` labels, using your `gh` login or `GITHUB_TOKEN`. Review the generated config's `checks`, then commit both files.
+
+- **Copilot.** The workflow grants `copilot-requests: write`, so the Copilot CLI runs on the workflow's token. In an organization's repository, usage is billed to the organization, which needs the Copilot policy "Allow use of Copilot CLI billed to the organization" and the configured models allowed. In a personal repository it bills the owner's seat. If that account has no Copilot, store a fine-grained token from an account that does, with the **Copilot Requests** permission, as the repository secret `COPILOT_GITHUB_TOKEN`, and the workflow uses it instead.
+- **Checks on fixes.** Pushes made with the workflow's token start no workflows, so the other checks wouldn't see autoreview's fixes. `add.sh` lists the project's pull request workflows that have a `workflow_dispatch` trigger in the config's `dispatch`, and autoreview starts them after pushing. It names the ones without the trigger. Those pushes still create `pull_request` runs awaiting approval; leave them.
+- **Restricted actions.** If the organization only allows its own actions, either ask an admin to allow `KurtPreston/autoreview` pinned to a commit, or run `add.sh --vendor`, which copies the action into `.github/actions/autoreview/` and uses that. Rerun it to update the copy.
+- Pull requests from forks and drafts are skipped.
+
+## Setup on Gitea
 
 Do this once for your account:
 
@@ -72,9 +88,13 @@ git clone https://github.com/KurtPreston/autoreview.git ~/Code/autoreview
 ~/Code/autoreview/add.sh path/to/repo --setup-action https://github.com/KurtPreston/dotagents@main
 ```
 
-This writes `.gitea/workflows/autoreview.yml` and `.autoreview.json` (existing files are kept), creates the `autoreview`, `needs-author` and `author-review` labels, and gives both bots write access. Gitea adds collaborators without an invitation. It uses your `tea` login, or `GITEA_TOKEN`. Options: `--ref` (the autoreview ref the workflow uses, default `main`), `--setup-action` (a step to run before deliberating, repeatable; see [Standing instructions](#standing-instructions)), `--runs-on` (the runner label), and `--reviewer`/`--implementer` (bot names). Review the generated config's `checks`, then commit both files.
+This writes `.gitea/workflows/autoreview.yml` and `.autoreview.json` (existing files are kept), creates the labels, and gives both bots write access. Gitea adds collaborators without an invitation. It uses your `tea` login, or `GITEA_TOKEN`. Review the generated config's `checks`, then commit both files.
 
-Without the bot secrets, both roles post with the workflow's built-in token, as one identity. Pushes made with that token don't start workflows, so a repository's other checks won't run on the fix commits.
+Without the bot secrets, both roles post with the workflow's built-in token, as one identity. Pushes made with that token don't start workflows; list checks in `dispatch` to start them after a fix (Gitea 1.23 or later).
+
+### `add.sh` options
+
+`--ref` (the autoreview ref the workflow uses, default `main`), `--vendor` (copy the action into the repository), `--setup-action` (a step to run before deliberating, repeatable; see [Standing instructions](#standing-instructions)), `--runs-on` (the runner label), and on Gitea `--secrets` and `--reviewer`/`--implementer` (bot names). The forge is chosen from the repository's origin.
 
 ## Configuration
 
@@ -107,11 +127,13 @@ Autoreview runs the deliberation. It doesn't decide what conventions the agents 
   with: …
 ```
 
-`add.sh --setup-action <uses>` writes such steps into a new workflow.
+On GitHub, name actions as `KurtPreston/dotagents@main` rather than by URL. `add.sh --setup-action <uses>` writes such steps into a new workflow.
 
 ## The action
 
-`action.yml` is a composite action. It sets up Node and the Copilot CLI, points the checkout's `origin` at the implementer's token (`setup-git.sh`), and runs the loop. Its inputs are `copilot-token`, `reviewer-token`, `implementer-token`, `token` (the fallback), `pr`, `heavy` and `copilot-version`.
+`action.yml` is a composite action that uses only GitHub-owned actions. It sets up Node and the Copilot CLI, points the checkout's `origin` at the pushing token and names commits after its user (`setup-git.sh`), and runs the loop from a copy outside the checkout. Its inputs are `copilot-token` (default: the workflow's token), `reviewer-token`, `implementer-token`, `token` (the fallback, default: the workflow's token), `pr`, `heavy` and `copilot-version`.
+
+Agents run without the forge tokens in their environment, so the Copilot CLI uses `copilot-token` and only the loop can post or push.
 
 The workflow template installs the project's npm dependencies first, when it has a lockfile, so the checks can run.
 
@@ -121,7 +143,7 @@ The workflow template installs the project's npm dependencies first, when it has
 ./src/autoreview.ts run --pr 42 --repo path/to/repo --dry-run
 ```
 
-`--dry-run` deliberates against an in-memory copy of the pull request. It prints every comment it would post, makes commits only in a temporary worktree, and pushes nothing. Without `--dry-run`, it posts and pushes for real, with your `tea` login (or `GITEA_TOKEN`) as one identity, or as the two bots when `AUTOREVIEW_REVIEWER_TOKEN` and `AUTOREVIEW_IMPLEMENTER_TOKEN` are set. `--force` deliberates without the label, or on a draft or closed pull request. `threads --pr 42` lists a pull request's review threads.
+`--dry-run` deliberates against an in-memory copy of the pull request. It prints every comment it would post, makes commits only in a temporary worktree, and pushes nothing. Without `--dry-run`, it posts and pushes for real as one identity: on GitHub `GITHUB_TOKEN`, `GH_TOKEN` or your `gh` login; on Gitea `GITEA_TOKEN` or your `tea` login. With `AUTOREVIEW_REVIEWER_TOKEN` and `AUTOREVIEW_IMPLEMENTER_TOKEN` set, it posts as the two of them. The forge is chosen from the origin's host (`github.com` and `*.ghe.com` are GitHub); `AUTOREVIEW_FORGE=github` or `gitea` overrides it, such as for GitHub Enterprise Server. `--force` deliberates without the label, or on a draft or closed pull request. `threads --pr 42` lists a pull request's review threads.
 
 Agent calls write their task and answer under `$TMPDIR/autoreview-<role>-*`, and the directory is kept when a call fails. Node runs with `--use-system-ca`, so servers with a private certificate authority work when the system trusts it.
 
@@ -134,10 +156,10 @@ npm ci
 npm run typecheck && npm run lint && npm run format:check && npm test
 ```
 
-The tests run whole deliberations against a real git repository with a bare origin, an in-memory forge (`src/memory.ts`), and scripted agents. They also run the agent runner against a fake Copilot CLI (`test/fake-copilot.ts`). `.gitea/workflows/checks.yml` runs the same commands on every push and pull request.
+The tests run whole deliberations against a real git repository with a bare origin, an in-memory forge (`src/memory.ts`), and scripted agents. They also run the agent runner against a fake Copilot CLI (`test/fake-copilot.ts`). `.github/workflows/checks.yml` and `.gitea/workflows/checks.yml` run the same commands on every push and pull request.
 
 ## Not yet
 
-- GitHub. The `Forge` interface leaves room for it: it needs a GitHub App identity, and threads resolved through GraphQL.
+- Pull requests from forks. The workflow's token can't push to them, so the GitHub workflow skips them.
 - Visual verification and heavy checks, which wait for a stronger runner. When they arrive, set the workflow's `runs-on`, pass `heavy: true`, and set `visual` once the implementer can render and attach pictures.
 - Threads opened by people. The agents only take part in threads the reviewer opened.
