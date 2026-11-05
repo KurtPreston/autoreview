@@ -2,11 +2,11 @@ import "./scratch.ts";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Comment } from "../src/forge.ts";
-import { compose } from "../src/markers.ts";
+import { compose, readMarker } from "../src/markers.ts";
 import { status } from "../src/loop.ts";
 import type { Store } from "../src/memory.ts";
 import type { Answer } from "../src/schemas.ts";
-import { fix, key, reply, seedFinding, setup, verdict } from "./harness.ts";
+import { finding, fix, key, reply, seedFinding, setup, verdict } from "./harness.ts";
 
 /** A thread on a.ts line 2 that someone other than autoreview opened. */
 function seedThread(store: Store, comments: Omit<Comment, "id" | "createdAt">[]): void {
@@ -136,4 +136,19 @@ test("a deferred thread the author answers goes back to the fixer", async () => 
   );
   await run();
   assert.equal(calls.fix, 1);
+});
+
+test("a finding on a line someone else commented on is still posted inline", async () => {
+  const { store, run } = setup(
+    {
+      review: [{ summary: "One problem.", findings: [finding] }],
+      fix: [reply],
+      verify: [verdict("resolved")],
+    },
+    seeded(["autoreview", "autofix"], [fromPerson]),
+  );
+  await run();
+  const markers = store.threads.flatMap((t) => t.comments.map((c) => readMarker(c.body)));
+  assert.ok(markers.some((marker) => marker?.kind === "finding"));
+  assert.doesNotMatch(store.comments[0]?.body ?? "", /Outside the diff/);
 });

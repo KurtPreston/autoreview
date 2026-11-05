@@ -136,11 +136,13 @@ export async function postFindings(
   pr: PullRequest,
   { findings, anchors }: { findings: Finding[]; anchors: Map<string, Set<number>> },
 ): Promise<string[]> {
-  const taken = new Set((await run.reviewer.threads(run.number)).map((t) => t.key));
+  // Lines our findings already sit on; GitHub numbers further threads on a line `#2`, and so on
+  const ours = (await run.reviewer.threads(run.number)).filter((t) => opener(t) === "ours");
+  const taken = new Set(ours.map((t) => t.key.replace(/#\d+$/, "")));
   const comments: NewComment[] = [];
   const notes: string[] = [];
   for (const finding of findings) {
-    // Anchor on a shown line that has no conversation yet
+    // Anchor on a shown line we haven't raised anything on yet
     const key = `${finding.path}:+${finding.line}`;
     if (!anchors.get(finding.path)?.has(finding.line) || taken.has(key)) {
       notes.push(`- \`${finding.path}:${finding.line}\` (${finding.severity}): ${finding.body}`);
