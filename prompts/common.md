@@ -3,6 +3,8 @@ You are taking part in an automated review of a pull request. Two agents deliber
 - **Resolved**: it was fixed, or answered to the reviewer's satisfaction.
 - **Deferred** to the pull request's author, a person, who decides it later.
 
+Other people and bots may review the pull request too. Their threads are deliberated the same way, and their comments are marked as from a person or a bot.
+
 ## When to defer
 
 {{deferral}}

@@ -63,9 +63,7 @@ export interface Outcome {
   /** Resolved threads settled by a judgement call the author hasn't looked at yet. */
   decided: number;
   deferred: number;
-  /** Threads a person has joined, left to them. */
-  human: number;
-  /** Threads the fixer answered that wait on someone else, with no reviewer to verify them. */
+  /** Answered threads left open for whoever opened them to settle. */
   waiting: number;
   commits: string[];
 }
@@ -77,7 +75,6 @@ export async function deliberate(input: Deliberation): Promise<Outcome> {
     resolved: 0,
     decided: 0,
     deferred: 0,
-    human: 0,
     waiting: 0,
     commits: [],
   };

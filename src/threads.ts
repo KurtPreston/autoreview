@@ -2,15 +2,17 @@
 import type { Run } from "./loop.ts";
 import type { Forge, Thread } from "./forge.ts";
 import { compose, plainText, readMarker, type Marker, type Role } from "./markers.ts";
-import type { Status } from "./status.ts";
+import { opener, status } from "./status.ts";
 import type { Decision } from "./schemas.ts";
 
 /** How much diff an agent's task carries before it is cut. */
 export const DIFF_LIMIT = 150_000;
 
-/** How many answers the fixer has given in a thread. */
+/** How many answers the fixer has given since anyone else last spoke in a thread. */
 export function exchanges(thread: Thread): number {
-  return thread.comments.filter((c) => readMarker(c.body)?.kind === "answer").length;
+  const markers = thread.comments.map((c) => readMarker(c.body));
+  const since = markers.slice(markers.findLastIndex((marker) => marker === undefined) + 1);
+  return since.filter((marker) => marker?.kind === "answer").length;
 }
 
 /** Whether the reviewer's latest comment is a ruling the fixer hasn't carried out yet. */
@@ -39,9 +41,15 @@ export function voice(run: Run): { forge: Forge; role: Role } {
     : { forge: run.fixer, role: "fixer" };
 }
 
-/** Whether a thread waits on the author: deferred, or, with no fixer, any open finding. */
-export function forAuthor(run: Run, state: Status): boolean {
-  return state === "deferred" || (!run.roles.fix && (state === "fix" || state === "human"));
+/** Whether a thread waits on the author: deferred, or, with no fixer, any open finding of ours. */
+export function forAuthor(run: Run, thread: Thread): boolean {
+  const state = status(thread);
+  return state === "deferred" || (!run.roles.fix && state === "fix" && opener(thread) === "ours");
+}
+
+/** Whether autoreview has a part in a thread: it opened it, or one of its roles spoke there. */
+export function involved(thread: Thread): boolean {
+  return thread.comments.some((comment) => readMarker(comment.body) !== undefined);
 }
 
 /** A deferral the loop makes itself, posted in autoreview's own voice. */
@@ -58,7 +66,7 @@ export function describe(thread: Thread): string {
       const marker = readMarker(comment.body);
       const who = marker
         ? `${marker.role === "reviewer" ? "Reviewer" : "Fixer"} (${marker.kind}${marker.value ? `, ${marker.value}` : ""})`
-        : `${comment.author} (a person)`;
+        : `${comment.author} (${comment.bot ? "a bot" : "a person"})`;
       return `**${who}:**\n\n${plainText(comment.body)}`;
     })
     .join("\n\n");

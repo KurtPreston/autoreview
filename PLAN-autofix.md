@@ -129,4 +129,16 @@ README (How it works, the labels, Setup, Configuration, Not yet), AGENTS.md if n
 
 ## Obstacles
 
+- Phase 1: the first import-rewriting script opened files for writing before reading them,
+  truncating them. Restored loop.ts from git and rewrote the script to read first.
+- Phase 4: test/loop.test.ts would pass 600 lines with the new tests. Moved its harness to
+  test/harness.ts and put the new tests in test/others.test.ts.
+- Phase 4: the review trigger went on GitHub's templates only. Gitea's review events and
+  payload are unverified, and Gitea's bots post with their own tokens, so a review trigger
+  there could start a run after each of their own reviews. Gitea answers others at the next push.
+
 ## Found bugs
+
+- Test harness quirk, not a product bug: `script.review?.[calls.review++]` never increments
+  the count when no review is scripted, so tests count reviews by recorded tasks instead.
+  Left as is.

@@ -20,6 +20,8 @@ export interface PullRequest {
 export interface Comment {
   id: number;
   author: string;
+  /** Set when the author is an app or bot account, where the forge says so. */
+  bot?: boolean;
   body: string;
   createdAt: string;
 }

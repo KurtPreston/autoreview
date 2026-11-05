@@ -2,15 +2,18 @@ import type { PullRequest } from "./forge.ts";
 import type { Outcome, Run } from "./loop.ts";
 import { compose, plainText, type Marker } from "./markers.ts";
 import { openDecision, status } from "./status.ts";
-import { forAuthor, voice } from "./threads.ts";
+import { forAuthor, involved, voice } from "./threads.ts";
 
 /** Count where every thread ended, post the summary, and label what's left to the author. */
 export async function summarise(run: Run, pr: PullRequest, outcome: Outcome): Promise<void> {
   const deferred: string[] = [];
   const decided: string[] = [];
-  const human: string[] = [];
   const waiting: string[] = [];
   for (const thread of await run.reviewer.threads(run.number)) {
+    // Threads autoreview never took part in aren't its to report
+    if (!involved(thread)) {
+      continue;
+    }
     const where = `\`${thread.path}:${thread.line}\``;
     const first = plainText(thread.comments[0].body).split("\n")[0];
     const state = status(thread);
@@ -21,14 +24,11 @@ export async function summarise(run: Run, pr: PullRequest, outcome: Outcome): Pr
         outcome.decided++;
         decided.push(`- ${where}: ${decision.chose} Alternative: ${decision.alternative}`);
       }
-    } else if (forAuthor(run, state)) {
+    } else if (forAuthor(run, thread)) {
       outcome.deferred++;
       deferred.push(`- ${where}: ${first}`);
-    } else if (state === "human") {
-      outcome.human++;
-      human.push(`- ${where}: ${first}`);
-    } else if (state === "verify" && !run.roles.review) {
-      // Answered, with no reviewer here to judge the answer
+    } else if (state === "waiting" || (state === "verify" && !run.roles.review)) {
+      // Answered, and left for whoever opened it to settle
       outcome.waiting++;
       waiting.push(`- ${where}: ${first}`);
     }
@@ -42,9 +42,6 @@ export async function summarise(run: Run, pr: PullRequest, outcome: Outcome): Pr
   }
   if (decided.length > 0) {
     sections.push(`Decided for you, to review:\n\n${decided.join("\n")}`);
-  }
-  if (human.length > 0) {
-    sections.push(`Left alone, since a person has joined:\n\n${human.join("\n")}`);
   }
   if (waiting.length > 0) {
     sections.push(`Answered, and left open for the commenter:\n\n${waiting.join("\n")}`);

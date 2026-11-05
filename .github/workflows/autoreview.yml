@@ -6,6 +6,9 @@ name: Autoreview
 on:
   pull_request:
     types: [opened, labeled, synchronize, reopened, ready_for_review]
+  # Another bot or person reviewed; reviews posted with the workflow's token start no runs
+  pull_request_review:
+    types: [submitted]
 
 # Push fixes, post reviews and labels, start checks after a fix, and call the Copilot CLI
 permissions:

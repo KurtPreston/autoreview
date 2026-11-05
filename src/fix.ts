@@ -4,7 +4,7 @@ import type { Outcome, Run } from "./loop.ts";
 import { compose, type Marker } from "./markers.ts";
 import { common, modeText, render } from "./prompts.ts";
 import type { Answer } from "./schemas.ts";
-import { status } from "./status.ts";
+import { latestPerson, status } from "./status.ts";
 import { decisionText, describe, exchanges, notice, ruled } from "./threads.ts";
 
 /** The fixer answers each waiting thread; fixes are checked, committed and pushed together. */
@@ -126,14 +126,18 @@ export async function answerThread(
   run: Run,
   { thread, answer, commit }: { thread: Thread; answer: Answer; commit?: string },
 ): Promise<void> {
-  const label = { fix: `fixed in ${commit?.slice(0, 7)}`, reply: "reply", defer: "for the author" }[
-    answer.action
-  ];
+  // A deferral goes to the person who last spoke in the thread, if any, by name
+  const person = answer.action === "defer" ? latestPerson(thread) : undefined;
+  const label = {
+    fix: `fixed in ${commit?.slice(0, 7)}`,
+    reply: "reply",
+    defer: person ? `for @${person.author}` : "for the author",
+  }[answer.action];
   const marker: Marker = { role: "fixer", kind: "answer", value: answer.action };
   if (answer.action === "defer") {
     marker.deferred = true;
   }
-  let text = answer.body;
+  let text = person ? `@${person.author} ${answer.body}` : answer.body;
   if (answer.decision) {
     marker.decision = answer.decision;
     text = `${text}\n\n${decisionText(answer.decision)}`;

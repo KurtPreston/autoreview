@@ -5,7 +5,7 @@ import type { Run } from "./loop.ts";
 import { compose, type Marker } from "./markers.ts";
 import { clip, common, modeText, render } from "./prompts.ts";
 import { postFindings } from "./review.ts";
-import { status } from "./status.ts";
+import { opener, status } from "./status.ts";
 import { decisionText, describe, DIFF_LIMIT, finalNote, tidy } from "./threads.ts";
 
 /** The reviewer judges every answered thread at once, and checks this round's changes. */
@@ -52,7 +52,8 @@ export async function verifyRound(run: Run, pr: PullRequest, start: string): Pro
     const label = value === "defer" ? "for the author" : value;
     const header = `**Reviewer** · ${run.config.reviewer.model} · ${label}${decision && value === "resolved" ? " · decision" : ""}`;
     await run.reviewer.reply(run.number, thread, compose(header, text, marker));
-    if (verdict === "resolved") {
+    // A person who opened a thread resolves it themselves
+    if (verdict === "resolved" && opener(thread) !== "person") {
       await run.reviewer.resolve(thread);
     }
   }

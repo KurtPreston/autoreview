@@ -5,7 +5,7 @@ import type { Run } from "./loop.ts";
 import { compose, readMarker, type Marker } from "./markers.ts";
 import { clip, common, modeText, render } from "./prompts.ts";
 import type { Finding } from "./schemas.ts";
-import { status } from "./status.ts";
+import { opener } from "./status.ts";
 import { describe, DIFF_LIMIT, forAuthor, tidy } from "./threads.ts";
 
 const MAX_FINDINGS = 10;
@@ -51,7 +51,7 @@ export async function recheck(
   { last, diff }: { last: string; diff: string },
 ): Promise<void> {
   const threads = await run.reviewer.threads(run.number);
-  const deferred = threads.filter((t) => forAuthor(run, status(t)));
+  const deferred = threads.filter((t) => forAuthor(run, t));
   if (deferred.length === 0) {
     return;
   }
@@ -82,7 +82,9 @@ export async function recheck(
       thread,
       compose(`**Reviewer** · ${run.config.reviewer.model} · resolved`, body, marker),
     );
-    await run.reviewer.resolve(thread);
+    if (opener(thread) !== "person") {
+      await run.reviewer.resolve(thread);
+    }
   }
 }
 
