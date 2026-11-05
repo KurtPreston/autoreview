@@ -183,7 +183,7 @@ async function deliberateFrom(
   // Add convention files found in, or listed by, the folders the pull request changes, and the
   // instruction files whose patterns match its files
   const changed = changedFiles(await setUp.reviewer.diff(number));
-  const folders = new FolderConfigs(checkout, setUp.configSha ?? pr.headSha);
+  const folders = new FolderConfigs(checkout, setUp.configSha ?? pr.headSha, pr.headSha);
   const found = await contextFor({ dir: checkout.dir, context: config.context, changed });
   const conventions = folderContext(
     await folders.for(changed),

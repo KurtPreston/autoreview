@@ -267,6 +267,28 @@ test("with configs from the base, a pull request can't drop the checks its fixes
   assert.equal(fromBase.deferred, 1);
 });
 
+test("with configs from the base, a folder only the base added since the branch forked isn't lost", async () => {
+  const tasks: string[] = [];
+  const nested = monorepo([fixB(tasks, { "pkg/foo/ok.txt": "" })], seedThread, {
+    trustBase: true,
+  });
+  const { store, work } = nested;
+
+  // main gains a configured package the branch hasn't merged
+  git(work, "checkout", "--quiet", "main");
+  write(work, { "extra/.autoreview.json": '{"checks":["true"]}', "extra/x.ts": "" });
+  git(work, "add", "-A");
+  git(work, "commit", "--quiet", "-m", "Add extra");
+  git(work, "checkout", "--quiet", "--detach", store.pr.headSha);
+  store.pr.baseSha = git(work, "rev-parse", "main");
+  store.diff = git(work, "diff", "main...HEAD");
+
+  const outcome = await nested.run();
+  assert.equal(nested.calls.fix, 1);
+  assert.equal(outcome.commits.length, 1);
+  assert.equal(outcome.resolved, 1);
+});
+
 /**
  * Run a pull request that moves pkg/foo, a.ts its only file on main, to lib/foo without its
  * file, reading configs from its base or not. Its fixes write `files`. With `overwrite`, main
