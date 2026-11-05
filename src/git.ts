@@ -118,13 +118,101 @@ function tail(text: string, limit = 4000): string {
   return text.length > limit ? `…${text.slice(-limit)}` : text;
 }
 
-/** Every path a unified diff touches, on either side. */
+/**
+ * Every path a unified diff touches, on either side, including renames, copies, and binary,
+ * mode-only or empty changes, which only git's extended headers name.
+ */
 export function changedFiles(diff: string): string[] {
   const paths = new Set<string>();
-  for (const match of diff.matchAll(/^(?:---|\+\+\+) [ab]\/(.+)$/gm)) {
-    paths.add(match[1]);
+  let oldLeft = 0;
+  let newLeft = 0;
+  for (const text of diff.split("\n")) {
+    // Skip hunk bodies, whose lines can look like headers
+    if (oldLeft > 0 || newLeft > 0) {
+      if (text.startsWith("+")) {
+        newLeft--;
+      } else if (text.startsWith("-")) {
+        oldLeft--;
+      } else if (text.startsWith(" ") || text === "") {
+        oldLeft--;
+        newLeft--;
+      }
+      continue;
+    }
+    const hunk = /^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@/.exec(text);
+    if (hunk) {
+      oldLeft = Number(hunk[1] ?? 1);
+      newLeft = Number(hunk[2] ?? 1);
+      continue;
+    }
+
+    // `diff --git a/x b/x` names files that have no `---` and `+++` lines
+    if (text.startsWith("diff --git ")) {
+      for (const path of gitHeaderPaths(text.slice("diff --git ".length))) {
+        paths.add(path);
+      }
+      continue;
+    }
+    const side = /^(?:---|\+\+\+) (.+?)\t?$/.exec(text);
+    if (side) {
+      const path = unquote(side[1]);
+      if (/^[ab]\//.test(path)) {
+        paths.add(path.slice(2));
+      }
+      continue;
+    }
+    const moved = /^(?:rename|copy) (?:from|to) (.+)$/.exec(text);
+    if (moved) {
+      paths.add(unquote(moved[1]));
+    }
   }
   return [...paths];
+}
+
+/** The paths in a `diff --git` header, when they can be told apart. */
+function gitHeaderPaths(rest: string): string[] {
+  // Quoted paths are unambiguous
+  if (rest.startsWith('"') || rest.endsWith('"')) {
+    const match = /^("(?:[^"\\]|\\.)*"|\S+) ("(?:[^"\\]|\\.)*"|\S+)$/.exec(rest);
+    return match
+      ? [match[1], match[2]]
+          .map(unquote)
+          .filter((path) => /^[ab]\//.test(path))
+          .map((path) => path.slice(2))
+      : [];
+  }
+
+  // Unquoted paths may hold spaces, so only the same path on both sides is certain; renames
+  // and copies name theirs again in their own headers
+  const half = (rest.length - 1) / 2;
+  const a = rest.slice(0, half);
+  const b = rest.slice(half + 1);
+  return a.startsWith("a/") && b.startsWith("b/") && a.slice(2) === b.slice(2) ? [a.slice(2)] : [];
+}
+
+/** A path as git writes it, decoding a C-style quoted one. */
+function unquote(path: string): string {
+  if (!(path.length >= 2 && path.startsWith('"') && path.endsWith('"'))) {
+    return path;
+  }
+  const escapes: Record<string, number> = { a: 7, b: 8, t: 9, n: 10, v: 11, f: 12, r: 13 };
+  const bytes: number[] = [];
+  const chars = Array.from(path.slice(1, -1));
+  for (let i = 0; i < chars.length; i++) {
+    if (chars[i] !== "\\") {
+      bytes.push(...Buffer.from(chars[i], "utf8"));
+      continue;
+    }
+    const octal = /^[0-7]{3}/.exec(chars.slice(i + 1, i + 4).join(""));
+    if (octal) {
+      bytes.push(parseInt(octal[0], 8));
+      i += 3;
+    } else {
+      const next = chars[++i] ?? "";
+      bytes.push(...(next in escapes ? [escapes[next]] : Buffer.from(next, "utf8")));
+    }
+  }
+  return Buffer.from(bytes).toString("utf8");
 }
 
 /**

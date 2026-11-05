@@ -1,11 +1,11 @@
 import "./scratch.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { Checkout, diffLines } from "../src/git.ts";
+import { changedFiles, Checkout, diffLines } from "../src/git.ts";
 import { compose, plainText, readMarker } from "../src/markers.ts";
 import { ownPush } from "../src/trigger.ts";
 
@@ -40,6 +40,51 @@ test("diff lines cover added and context lines on the new side", () => {
 
   // Without context, only added lines
   assert.deepEqual([...(diffLines(DIFF, false).get("a.ts") ?? [])], [2, 3]);
+});
+
+test("changed files include those only git's extended headers name, and quoted paths", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "autoreview-git-"));
+  execFileSync("git", ["init", "--quiet", dir]);
+  const checkout = new Checkout(dir);
+  await checkout.git("config", "user.name", "Test");
+  await checkout.git("config", "user.email", "test@example.com");
+  await checkout.git("config", "core.quotePath", "true");
+  writeFileSync(join(dir, "moved.txt"), "moved\n");
+  writeFileSync(join(dir, "mode.sh"), "echo\n");
+  writeFileSync(join(dir, "edited.ts"), "one\n-- a/fake.ts\n");
+  writeFileSync(join(dir, "gone.bin"), Buffer.from([0, 1, 2]));
+  await checkout.git("add", "-A");
+  await checkout.git("commit", "--quiet", "-m", "Base");
+  const base = await checkout.head();
+
+  // A rename, a mode change, an empty file, binary files, paths git quotes, and hunk lines
+  // that look like headers
+  mkdirSync(join(dir, "pkg"));
+  await checkout.git("mv", "moved.txt", "pkg/moved.txt");
+  chmodSync(join(dir, "mode.sh"), 0o755);
+  writeFileSync(join(dir, "empty.txt"), "");
+  writeFileSync(join(dir, "new.bin"), Buffer.from([0, 3, 4]));
+  writeFileSync(join(dir, "gone.bin"), Buffer.from([0, 5, 6]));
+  writeFileSync(join(dir, "café.ts"), "x\n");
+  writeFileSync(join(dir, "with space.ts"), "y\n");
+  writeFileSync(join(dir, 'quote".ts'), "z\n");
+  writeFileSync(join(dir, "edited.ts"), "one\n++ b/fake.ts\n");
+  await checkout.git("add", "-A");
+  await checkout.git("commit", "--quiet", "-m", "Change");
+  const diff = await checkout.diff(base, await checkout.head());
+
+  assert.deepEqual(changedFiles(diff).sort(), [
+    "café.ts",
+    "edited.ts",
+    "empty.txt",
+    "gone.bin",
+    "mode.sh",
+    "moved.txt",
+    "new.bin",
+    "pkg/moved.txt",
+    'quote".ts',
+    "with space.ts",
+  ]);
 });
 
 test("markers survive a round trip and hide from agents", () => {
