@@ -250,6 +250,6 @@ test("a trusted CLI run takes its config from the base and opens its posts with 
 
   // The fix passed the base's checks and was pushed, and every post opens with the notice
   for (const post of posts()) {
-    assert.ok(post.body?.body?.startsWith("Pilot.\n\n"), `${post.path}: ${post.body?.body}`);
+    assert.ok(post.body?.body?.startsWith("🤖 Pilot.\n\n"), `${post.path}: ${post.body?.body}`);
   }
 });

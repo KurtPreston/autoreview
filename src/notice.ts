@@ -6,7 +6,10 @@ import type { Forge } from "./forge.ts";
  * runs autoreview and why, when it posts as a person rather than a bot. Reads are unchanged.
  */
 export function withNotice(forge: Forge, notice: string): Forge {
-  const mark = (body: string) => `${notice}\n\n${body}`;
+  // One line opening with 🤖, which readers of a comment's text skip like its header
+  const line = notice.replace(/\s*\n\s*/g, " ").trim();
+  const opening = line.startsWith("🤖 ") ? line : `🤖 ${line}`;
+  const mark = (body: string) => `${opening}\n\n${body}`;
 
   // Every write that carries a body gets the notice; markers sit at the end, so they still parse
   const writes: Partial<Forge> = {
