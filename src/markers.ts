@@ -17,7 +17,7 @@ export interface Marker {
   deferred?: boolean;
   /** Set when this comment settles the thread with a judgement call for the author to review. */
   decision?: Decision;
-  /** For reviews and summaries: the head commit they cover. */
+  /** For reviews and summaries, and reasons for reopening: the head commit they cover. */
   head?: string;
 }
 

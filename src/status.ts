@@ -25,15 +25,20 @@ export function status(thread: Thread): Status {
     return "fix";
   }
 
-  // Since the last outside comment, a deferral is final
-  const since = markers.slice(markers.findLastIndex((marker) => marker === undefined) + 1);
-  if (since.some((marker) => marker?.deferred)) {
+  if (deferredNow(thread)) {
     return "deferred";
   }
   if (last.role === "reviewer" && last.kind === "verdict" && last.value === "resolved") {
     return "waiting";
   }
   return last.role === "reviewer" ? "fix" : "verify";
+}
+
+/** Whether a thread is deferred since anyone else last spoke: a deferral is final until then. */
+export function deferredNow(thread: Thread): boolean {
+  const markers = thread.comments.map((comment) => readMarker(comment.body));
+  const since = markers.slice(markers.findLastIndex((marker) => marker === undefined) + 1);
+  return since.some((marker) => marker?.deferred);
 }
 
 /** Who opened a thread: our reviewer, another bot, or a person. */

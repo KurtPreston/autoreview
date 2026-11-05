@@ -122,6 +122,11 @@ export class MemoryForge implements Forge {
     this.#log(`resolve ${thread.key}`, "");
   }
 
+  async reopen(thread: Thread): Promise<void> {
+    this.#thread(thread).resolved = false;
+    this.#log(`reopen ${thread.key}`, "");
+  }
+
   async comment(_: number, body: string): Promise<void> {
     this.store.comments.push(this.#comment(body));
     this.#log("comment", body);
