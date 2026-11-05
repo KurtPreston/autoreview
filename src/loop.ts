@@ -120,8 +120,11 @@ export async function deliberate(input: Deliberation): Promise<Outcome> {
   const changed = changedFiles(await input.reviewer.diff(number));
   const folders = new FolderConfigs(checkout, pr.headSha);
   const found = await contextFor({ dir: checkout.dir, context: config.context, changed });
-  const listed = folderContext(await folders.for(changed), [...config.context, ...found]);
-  const conventions = [...found.map((path) => ({ path, folder: posix.dirname(path) })), ...listed];
+  const conventions = folderContext(
+    await folders.for(changed),
+    config.context,
+    found.map((path) => ({ path, folder: posix.dirname(path) })),
+  );
   const run: Run = { ...input, roles, conventions, folders };
 
   // Recheck what the author's new commits settle, and review them

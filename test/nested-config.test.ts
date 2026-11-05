@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:f
 import { join } from "node:path";
 import { test } from "node:test";
 import { ConfigError, parseFolderConfig } from "../src/config.ts";
-import { FolderConfigs } from "../src/folders.ts";
+import { folderContext, FolderConfigs } from "../src/folders.ts";
 import { Checkout } from "../src/git.ts";
 import { compose } from "../src/markers.ts";
 import type { Store } from "../src/memory.ts";
@@ -41,6 +41,52 @@ test("a folder's file sets only checks and context, relative to its folder", () 
   );
   assert.throws(() => parseFolderConfig({ context: ["../../x"] }, "a"), /outside the repository/);
   assert.throws(() => parseFolderConfig({ checks: "npm test" }, "a"), ConfigError);
+});
+
+test("folder context keeps each folder's scope unless a broader one covers it", () => {
+  const folder = (name: string, context: string[]) => ({
+    folder: name,
+    checks: [],
+    heavyChecks: [],
+    context,
+  });
+
+  // Two packages sharing a file each keep their own scope
+  assert.deepEqual(
+    folderContext(
+      [folder("packages/api", ["docs/shared.md"]), folder("packages/web", ["docs/shared.md"])],
+      [],
+      [],
+    ),
+    [
+      { path: "docs/shared.md", folder: "packages/api" },
+      { path: "docs/shared.md", folder: "packages/web" },
+    ],
+  );
+
+  // A file found by name in a subfolder gives way to a folder file listing it for the folder above
+  assert.deepEqual(
+    folderContext(
+      [folder("packages/api", ["packages/api/docs/AGENTS.md"])],
+      [],
+      [{ path: "packages/api/docs/AGENTS.md", folder: "packages/api/docs" }],
+    ),
+    [{ path: "packages/api/docs/AGENTS.md", folder: "packages/api" }],
+  );
+
+  // A broader scope covers narrower ones and repeats, and the root's context covers everything
+  assert.deepEqual(
+    folderContext(
+      [
+        folder("pkg", ["docs/a.md", "docs/root.md"]),
+        folder("pkg/sub", ["docs/a.md"]),
+        folder("pkg/sub", ["docs/a.md"]),
+      ],
+      ["docs/root.md"],
+      [],
+    ),
+    [{ path: "docs/a.md", folder: "pkg" }],
+  );
 });
 
 test("folder files are read from the starting commit, shallowest first, for the paths' folders", async () => {

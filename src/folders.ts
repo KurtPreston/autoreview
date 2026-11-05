@@ -136,19 +136,27 @@ export class FolderConfigs {
 }
 
 /**
- * The context the folder files add, each for the code under the folder whose file lists it,
- * leaving out paths already listed.
+ * The convention files to read: those `found` by name, then the context the folder files add,
+ * each for the code under the folder whose file lists it. An entry is left out when the root's
+ * `listed` context, which covers the whole repository, or another entry for the same file over
+ * the same folder or one above it already covers it.
  */
-export function folderContext(configs: FolderConfig[], listed: string[]): Convention[] {
-  const seen = new Set(listed);
-  const added: Convention[] = [];
-  for (const { folder, context } of configs) {
-    for (const path of context) {
-      if (!seen.has(path)) {
-        seen.add(path);
-        added.push({ path, folder });
-      }
-    }
-  }
-  return added;
+export function folderContext(
+  configs: FolderConfig[],
+  listed: string[],
+  found: Convention[],
+): Convention[] {
+  const all = [
+    ...found,
+    ...configs.flatMap(({ folder, context }) => context.map((path) => ({ path, folder }))),
+  ];
+  return all.filter(
+    ({ path, folder }, index) =>
+      !listed.includes(path) &&
+      !all.some(
+        (other, at) =>
+          other.path === path &&
+          (other.folder === folder ? at < index : folder.startsWith(`${other.folder}/`)),
+      ),
+  );
 }
