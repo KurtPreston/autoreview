@@ -7,7 +7,15 @@ import { CONFIG_FILE, DEFAULTS } from "../config.ts";
 import { ghAuthToken, githubApi, githubToken } from "../forges.ts";
 import { GitHub } from "../github.ts";
 import type { Remote } from "../remote.ts";
-import { fill, guessConfig, setupSteps, template, writeNew } from "./files.ts";
+import {
+  fill,
+  guessConfig,
+  nonEmpty,
+  setupSteps,
+  template,
+  writeConfig,
+  writeNew,
+} from "./files.ts";
 import { ACTION, type AddOptions } from "./options.ts";
 import { vendor } from "./vendor.ts";
 
@@ -51,10 +59,9 @@ export async function addGitHub(remote: Remote, options: AddOptions): Promise<vo
     log,
   );
 
-  // The config, with checks guessed from the scripts, and the checks to start after a fix
+  // The config, when there are checks to guess or workflows to start after a fix
   const dispatch = await guessDispatch(repo, log);
-  const config = { ...(await guessConfig(repo)), ...(dispatch.length > 0 ? { dispatch } : {}) };
-  await writeNew(join(repo, CONFIG_FILE), `${JSON.stringify(config, null, 2)}\n`, log);
+  await writeConfig(repo, { ...(await guessConfig(repo)), ...nonEmpty({ dispatch }) }, log);
 
   // Labels; the workflow's token posts, so there are no bots or secrets to set up
   const labels = [

@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import type { Config } from "./config.ts";
+import type { Convention } from "./context.ts";
 import type { PullRequest } from "./forge.ts";
 
 const PROMPTS = new URL("../prompts/", import.meta.url);
@@ -17,10 +18,10 @@ export function render(name: string, vars: Record<string, string | number>): str
 
 /**
  * The shared preamble: the deliberation's rules, the project, and the pull request. The
- * configured context applies to the whole repository, and each of `conventions`, found in a
- * folder the pull request changes, to the code under its folder.
+ * configured context applies to the whole repository, and each of `conventions`, found in or
+ * listed by a folder the pull request changes, to the code under that folder.
  */
-export function common(pr: PullRequest, config: Config, conventions: string[] = []): string {
+export function common(pr: PullRequest, config: Config, conventions: Convention[] = []): string {
   const visual =
     "It can only be judged by looking at the result (a rendering, a layout, an animation)";
   return render("common", {
@@ -32,7 +33,7 @@ export function common(pr: PullRequest, config: Config, conventions: string[] = 
     }),
     context: quoted(config.context),
     conventions: conventions.length
-      ? ` Then read these, from the folders the pull request changes: ${quoted(conventions)}. Each applies to the code under its folder, on top of those above it.`
+      ? ` Then read these, from the folders the pull request changes, each for the code under the folder named with it, on top of those above it: ${conventions.map(({ path, folder }) => `\`${path}\` for \`${folder}/\``).join(", ")}.`
       : "",
     number: pr.number,
     title: pr.title,

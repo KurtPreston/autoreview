@@ -14,10 +14,9 @@ export function copilotAgents({
   config,
   checkout,
   usage,
-  heavy,
   log,
   signal,
-}: Pick<Deliberation, "config" | "checkout" | "usage" | "heavy"> &
+}: Pick<Deliberation, "config" | "checkout" | "usage"> &
   Partial<Pick<Deliberation, "log" | "signal">>): Agents {
   const base = {
     cwd: checkout.dir,
@@ -38,7 +37,7 @@ export function copilotAgents({
         },
         usage,
       ),
-    fix: (task) =>
+    fix: (task, deny) =>
       runAgent(
         {
           ...base,
@@ -46,7 +45,7 @@ export function copilotAgents({
           role: config.fixer,
           task,
           validate: validateAnswer,
-          permissions: fixerPermissions(config, heavy),
+          permissions: fixerPermissions(deny),
         },
         usage,
       ),
